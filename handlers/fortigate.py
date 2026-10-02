@@ -73,8 +73,8 @@ def handle(host, alert_info, options):
     driver_options = webdriver.ChromeOptions()
     driver_options.add_argument('--ignore-certificate-errors')
     # Suppress console errors from Chrome to keep the terminal clean
-    driver_options.add_argument('--log-level=3')
-    driver_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+    # driver_options.add_argument('--log-level=3')
+    # driver_options.add_experimental_option('excludeSwitches', ['enable-logging'])
     # driver_options.add_argument('--headless') # Uncomment to run headless without opening a window
     
     # Using Chrome. Ensure you have a compatible chromedriver installed and in PATH.
