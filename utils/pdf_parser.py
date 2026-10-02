@@ -9,38 +9,41 @@ def parse_nagios_pdf(pdf_path):
             for table in tables:
                 if not table:
                     continue
-                
-                # Identify the header row
-                header_idx = -1
-                for i, row in enumerate(table):
-                    if row and len(row) > 1:
-                        # Check if the initial columns are Host and Service (as in the Nagios report)
-                        row_str = " ".join([str(c) for c in row if c])
-                        if "Host" in row_str and "Service" in row_str:
-                            header_idx = i
+                for row in table:
+                    if not row:
+                        continue
+                        
+                    # The host is typically in the first or second column
+                    host_raw = str(row[0]).strip() if row[0] else ""
+                    if not host_raw and len(row) > 1:
+                        host_raw = str(row[1]).strip() if row[1] else ""
+                        
+                    if not host_raw:
+                        continue
+                        
+                    # Clean up the host name (Nagios sometimes wraps text with \n)
+                    host_cleaned = host_raw.replace('\n', '')
+                    
+                    # Ignore headers and generic numeric counters from the report header
+                    if len(host_cleaned) < 3 or host_cleaned in ["Host", "Service", "Status"]:
+                        continue
+                    if host_cleaned.isdigit():
+                        continue
+                        
+                    # Try to guess status just for metadata
+                    status = ""
+                    for col in row:
+                        col_str = str(col).strip().upper() if col else ""
+                        if col_str in ["CRITICAL", "WARNING", "UNKNOWN", "OK"]:
+                            status = col_str
                             break
-                
-                if header_idx != -1:
-                    # Extract data
-                    for row in table[header_idx + 1:]:
-                        if not row or not row[0]:
-                            continue
-                        
-                        host_raw = str(row[0]).strip()
-                        # Extract the first line in case it's broken
-                        host_cleaned = host_raw.split('\n')[0].strip()
-                        
-                        # Safely grab the other columns
-                        service = str(row[1]).replace('\n', ' ').strip() if len(row) > 1 else ""
-                        status = str(row[2]).replace('\n', ' ').strip() if len(row) > 2 else ""
-                        
-                        if host_cleaned:
-                            alerts.append({
-                                "host": host_cleaned,
-                                "service": service,
-                                "status": status,
-                                "raw_host": host_raw
-                            })
+                            
+                    alerts.append({
+                        "host": host_cleaned,
+                        "service": "",
+                        "status": status,
+                        "raw_host": host_raw
+                    })
                             
     # Return a deduplicated list by host (so we only run once per equipment)
     unique_hosts = {}
