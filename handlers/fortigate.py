@@ -31,7 +31,7 @@ def _get_wan_ip(driver, interface_name):
         ip_cell = row.find_element(By.XPATH, ".//td[contains(text(), '.') and contains(text(), '/')]")
         ip_text = ip_cell.text.strip()
         cidr = ip_netmask_to_cidr(ip_text)
-        return f" ({cidr})" if cidr else ""
+        return cidr if cidr else ""
     except:
         return ""
 
@@ -40,16 +40,20 @@ def _extract_wan_status(driver, host):
     try:
         wan1_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan1']")
         wan1_status = wan1_element.get_attribute("link")
-        wan_status["WAN1"] = (wan1_status.upper() if wan1_status else "UNKNOWN") + _get_wan_ip(driver, "wan1")
+        wan_status["WAN1"] = wan1_status.upper() if wan1_status else "UNKNOWN"
+        wan_status["WAN1_IP"] = _get_wan_ip(driver, "wan1")
     except Exception:
         wan_status["WAN1"] = "NOT FOUND"
+        wan_status["WAN1_IP"] = ""
         
     try:
         wan2_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan2']")
         wan2_status = wan2_element.get_attribute("link")
-        wan_status["WAN2"] = (wan2_status.upper() if wan2_status else "UNKNOWN") + _get_wan_ip(driver, "wan2")
+        wan_status["WAN2"] = wan2_status.upper() if wan2_status else "UNKNOWN"
+        wan_status["WAN2_IP"] = _get_wan_ip(driver, "wan2")
     except Exception:
         wan_status["WAN2"] = "NOT FOUND"
+        wan_status["WAN2_IP"] = ""
         
     wan3_configured = False
     wan3_name = "internal5"
@@ -73,10 +77,12 @@ def _extract_wan_status(driver, host):
         
         if wan3_clean == "UP":
             print(f"[{host}] Found port5/internal5 physically UP.")
-            wan_status["WAN3"] = "UP" + _get_wan_ip(driver, wan3_name)
+            wan_status["WAN3"] = "UP"
+            wan_status["WAN3_IP"] = _get_wan_ip(driver, wan3_name)
         elif wan3_configured:
             print(f"[{host}] Found port5/internal5 DOWN but it is configured in the table.")
-            wan_status["WAN3"] = "DOWN" + _get_wan_ip(driver, wan3_name)
+            wan_status["WAN3"] = "DOWN"
+            wan_status["WAN3_IP"] = _get_wan_ip(driver, wan3_name)
         else:
             print(f"[{host}] port5/internal5 is DOWN and not explicitly configured in the table. Ignoring.")
             
