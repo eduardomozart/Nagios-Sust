@@ -75,13 +75,18 @@ Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Micro
 
 You can even use conditional logic directly in Word to show specific text depending on the equipment type or the presence of an error. 
 
-**Pro-Tip**: To avoid syntax errors (`Encountered unknown tag 'endif'`) and prevent empty blank lines in your final document, you should place every `{%p` tag on its **OWN SEPARATE LINE** (by pressing Enter). 
-The `p` in `{%p` stands for "paragraph". When the template engine reads a `{%p` tag, it will automatically **delete the entire paragraph/line** containing that tag from the final document, so it won't leave any holes or blank spaces!
+**Pro-Tip**: It's crucial to understand the difference between Paragraph Tags (`{%p`) and Standard Tags (`{%`):
+
+1. **Paragraph Tags (`{%p if ... %}`)**: The `p` stands for "paragraph". When the template engine evaluates this, it **deletes the entire line/paragraph** from the document to prevent blank holes. Because of this, you must ALWAYS put `{%p` tags on their **OWN SEPARATE LINE** (by pressing Enter). If you place normal text or other tags on the same line as a `{%p` tag, they will be accidentally deleted!
+   
+2. **Standard Inline Tags (`{% if ... %}`)**: These tags DO NOT delete the paragraph. You should use these when you want to conditionally insert text in the middle of an existing sentence or line.
+
+**Example of combining both correctly:**
 
 ```text
 {%p if res.error %}
 Error: {{ res.error }}
 {%p else %}
-WAN1 Link Status: {{ res.wan_status.WAN1 }}
+WAN1 Link Status: {{ res.wan_status.WAN1 }} {% if res.wan_status.WAN1_IP %}({{ res.wan_status.WAN1_IP }}){% endif %}
 {%p endif %}
 ```
