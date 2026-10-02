@@ -1,0 +1,15 @@
+nagios_report: "report.pdf"
+
+rules:
+  - name: "FortiGate"
+    host_filter:
+      startswith: "FGT"
+    handler: "fortigate"
+    options:
+      url_template: "https://{host}/ng/interface"
+      # username: "admin"
+      # password: "" # Leave empty to prompt in terminal
+
+exporters:
+  - type: "docx"
+    output_file: "Evidence_Report.docx"

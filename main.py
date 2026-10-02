@@ -1,0 +1,128 @@
+import yaml
+import importlib
+import sys
+import os
+import getpass
+import tkinter as tk
+from tkinter import filedialog
+from utils.pdf_parser import parse_nagios_pdf
+
+# Global credential cache
+_cached_username = None
+_cached_password = None
+
+def get_global_credentials():
+    global _cached_username, _cached_password
+    if not _cached_username:
+        _cached_username = input("Enter Username: ")
+    if not _cached_password:
+        _cached_password = getpass.getpass(f"Enter Password for {_cached_username}: ")
+    return _cached_username, _cached_password
+
+def get_base_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+def load_config(config_file="config.yaml"):
+    base_dir = get_base_dir()
+    config_path = os.path.join(base_dir, config_file)
+    
+    if not os.path.exists(config_path):
+        print(f"Error: Configuration file {config_path} not found.")
+        sys.exit(1)
+    with open(config_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+def match_rule(host, rules):
+    for rule in rules:
+        host_filter = rule.get("host_filter", {})
+        if "startswith" in host_filter:
+            if host.startswith(host_filter["startswith"]):
+                return rule
+        # Additional filter types can be added here (e.g., regex, endswith)
+    return None
+
+def get_pdf_file_path(default_path):
+    if os.path.exists(default_path):
+        return default_path
+        
+    print(f"Warning: PDF file '{default_path}' not found.")
+    print("Please select the PDF file from the file explorer dialog...")
+    
+    # Hide the main tkinter window
+    root = tk.Tk()
+    root.withdraw()
+    
+    # Force the dialog to appear on top
+    root.attributes('-topmost', True)
+    
+    file_path = filedialog.askopenfilename(
+        title="Select Nagios Report PDF",
+        filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")]
+    )
+    
+    if not file_path:
+        print("No file selected. Exiting.")
+        sys.exit(1)
+        
+    return file_path
+
+def main():
+    config = load_config()
+    pdf_file_name = config.get("nagios_report", "report.pdf")
+    
+    base_dir = get_base_dir()
+    pdf_default_path = os.path.join(base_dir, pdf_file_name)
+    
+    pdf_path = get_pdf_file_path(pdf_default_path)
+    
+    print(f"Reading PDF: {pdf_path}")
+    try:
+        alerts = parse_nagios_pdf(pdf_path)
+    except Exception as e:
+        print(f"Error reading PDF: {e}")
+        sys.exit(1)
+
+    print(f"Found {len(alerts)} unique hosts in the PDF.")
+    results = []
+
+    for alert in alerts:
+        host = alert["host"]
+        rule = match_rule(host, config.get("rules", []))
+        
+        if rule:
+            handler_name = rule["handler"]
+            print(f"Host '{host}' matched rule '{rule['name']}'. Executing handler '{handler_name}'...")
+            
+            options = rule.get("options", {})
+            # Inject the global credential provider into options
+            options["credential_provider"] = get_global_credentials
+            
+            try:
+                handler_module = importlib.import_module(f"handlers.{handler_name}")
+                result = handler_module.handle(host, alert, options)
+                results.append(result)
+            except ImportError:
+                print(f"Error: Handler '{handler_name}' not found in handlers/")
+            except Exception as e:
+                print(f"Error executing handler for {host}: {e}")
+
+    if not results:
+        print("No evidence generated (no hosts matched the rules or execution failed).")
+        return
+
+    # Process Exporters
+    for exporter_config in config.get("exporters", []):
+        exporter_type = exporter_config["type"]
+        print(f"Running exporter: {exporter_type}")
+        try:
+            exporter_module = importlib.import_module(f"exporters.{exporter_type}_exporter")
+            exporter_module.export(results, exporter_config)
+        except ImportError:
+            print(f"Error: Exporter '{exporter_type}' not found in exporters/")
+        except Exception as e:
+            print(f"Error executing exporter {exporter_type}: {e}")
+
+if __name__ == "__main__":
+    main()
