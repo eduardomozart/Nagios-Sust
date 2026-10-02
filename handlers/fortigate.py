@@ -59,11 +59,30 @@ def handle(host, alert_info, options):
             
         login_btn.click()
 
-        # 2. Wait for the interfaces table (portgroup) to load
-        print(f"[{host}] Login successful. Waiting for interfaces table...")
-        WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "table.portgroup"))
-        )
+        # 2. Wait for the interfaces table (portgroup) to load, or handle FortiManager prompt
+        print(f"[{host}] Login successful. Waiting for interfaces table or FortiManager prompt...")
+        
+        start_time = time.time()
+        fmg_handled = False
+        while time.time() - start_time < 30:
+            # If the interfaces table has appeared, we are done waiting
+            if driver.find_elements(By.CSS_SELECTOR, "table.portgroup"):
+                break
+                
+            # If the FortiManager centrally managed prompt appears, click "Login Read-Only"
+            if not fmg_handled:
+                fmg_buttons = driver.find_elements(By.XPATH, "//button[contains(., 'Login Read-Only')]")
+                if fmg_buttons:
+                    print(f"[{host}] FortiManager interception detected. Clicking 'Login Read-Only'...")
+                    try:
+                        fmg_buttons[0].click()
+                        fmg_handled = True
+                    except Exception as e:
+                        print(f"[{host}] Failed to click FortiManager prompt: {e}")
+                        
+            time.sleep(1)
+        else:
+            raise Exception("Timeout waiting for interfaces table to load after login.")
         
         # Short pause to ensure rendering of icons/states
         time.sleep(3)
