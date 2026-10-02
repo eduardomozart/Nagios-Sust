@@ -55,6 +55,12 @@ def export(results, config):
                 
             context['results'].append(res_context)
             
-        doc.render(context)
-        doc.save(output_path)
-        print(f"Report ({lang}) successfully generated at: {os.path.abspath(output_path)}")
+        try:
+            doc.render(context)
+            doc.save(output_path)
+            print(f"Report ({lang}) successfully generated at: {os.path.abspath(output_path)}")
+        except Exception as e:
+            print(f"\n[!] Error rendering template '{template_file}' (Language: {lang})")
+            print(f"    Details: {e}")
+            print(f"    Skipping export for {lang} due to template error.\n")
+            continue
