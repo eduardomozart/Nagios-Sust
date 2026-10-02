@@ -59,7 +59,11 @@ The `options` block inside a rule passes configuration to the handler script.
 - `capture_screenshot` (boolean): Set to `false` to prevent the handler from generating and saving screenshots. Defaults to `true`.
 
 **Specific Options (FortiGate Handler):**
-- `url_template` (string): Overrides the default FortiGate interface URL. Use `{host}` as a placeholder for the equipment name. Default: `https://{host}/ng/interface`
+- `url_template` (string): Overrides the default FortiGate interface URL. Default: `https://{host}/ng/interface`
+- `diagnose_interfaces` (list): Which interfaces to extract physical status (UP/DOWN) and IP/Mask for. Default: `["wan1", "wan2", "internal5", "port5"]`
+- `ping_interfaces` (list): Which of the diagnosed interfaces should also be pinged to calculate latency. Default: `["wan1", "wan2"]`
+- `ping_gateway` (boolean): If `true`, the script will parse `https://{host}/ng/routing/static/` to find the default route Gateway for the interface and ping *that* instead of the local interface IP. Default: `false`
+- `interface_mapping` (dict): Maps the internal FortiGate interface names to the keys expected by your DOCX template. Default: `{"wan1": "WAN1", "wan2": "WAN2", "internal5": "WAN3", "port5": "WAN3"}`
 - `username` (string): Overrides the global credentials with a rule-specific username.
 - `password` (string): Overrides the global credentials with a rule-specific password.
 

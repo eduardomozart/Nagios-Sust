@@ -27,6 +27,15 @@ rules:
     handler: "fortigate"
     options:
       url_template: "https://{host}/ng/interface"
+      ping_gateway: true
+      diagnose_interfaces:
+        - "wan1"
+        - "wan2"
+        - "internal5"
+        - "port5"
+      ping_interfaces:
+        - "wan1"
+        - "wan2"
       # You can override credentials here for this specific rule if needed
       # username: "specific_admin"
       # password: ""

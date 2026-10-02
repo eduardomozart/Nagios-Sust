@@ -49,87 +49,104 @@ def _get_wan_details(driver, interface_name):
                 match = re.search(r'(?:^|\b|\D)(\d{1,3}(?:\.\d{1,3}){3}(?:/(?:\d{1,3}(?:\.\d{1,3}){3}|\d{1,2}))?)', row_text)
                 if match:
                     ip, mask = ip_netmask_to_cidr(match.group(1))
-                    latency = ping_host(ip)
-                    return ip, mask, latency
+                    return ip, mask
             except Exception as row_e:
                 print(f"DEBUG: Row processing exception for {interface_name}: {row_e}")
                 continue
-        return "", "", ""
+        return "", ""
     except:
-        return "", "", ""
+        return "", ""
 
-def _extract_wan_status(driver, host):
+def _extract_wan_status(driver, host, options):
     wan_status = {}
-    try:
-        wan1_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan1']")
-        wan1_status = wan1_element.get_attribute("link")
-        wan_status["WAN1"] = wan1_status.upper() if wan1_status else "UNKNOWN"
-        wan1_ip, wan1_mask, wan1_latency = _get_wan_details(driver, "wan1")
-        wan_status["WAN1_IP"] = wan1_ip
-        wan_status["WAN1_MASK"] = wan1_mask
-        wan_status["WAN1_LATENCY"] = wan1_latency
-    except Exception:
-        wan_status["WAN1"] = "NOT FOUND"
-        wan_status["WAN1_IP"] = ""
-        wan_status["WAN1_MASK"] = ""
-        wan_status["WAN1_LATENCY"] = ""
-        
-    try:
-        wan2_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan2']")
-        wan2_status = wan2_element.get_attribute("link")
-        wan_status["WAN2"] = wan2_status.upper() if wan2_status else "UNKNOWN"
-        wan2_ip, wan2_mask, wan2_latency = _get_wan_details(driver, "wan2")
-        wan_status["WAN2_IP"] = wan2_ip
-        wan_status["WAN2_MASK"] = wan2_mask
-        wan_status["WAN2_LATENCY"] = wan2_latency
-    except Exception:
-        wan_status["WAN2"] = "NOT FOUND"
-        wan_status["WAN2_IP"] = ""
-        wan_status["WAN2_MASK"] = ""
-        wan_status["WAN2_LATENCY"] = ""
-        
-    wan3_configured = False
-    wan3_name = "internal5"
-    try:
-        elements = driver.find_elements(By.XPATH, "//*[contains(text(), '(internal5)') or contains(text(), '(port5)') or normalize-space(text())='internal5' or normalize-space(text())='port5']")
-        if elements:
-            wan3_configured = True
-            if 'port5' in elements[0].text:
-                wan3_name = "port5"
-    except Exception:
-        pass
-
-    try:
+    
+    # Read configuration
+    diagnose_intfs = options.get("diagnose_interfaces", ["wan1", "wan2", "internal5", "port5"])
+    ping_intfs = options.get("ping_interfaces", ["wan1", "wan2"])
+    ping_gateway = options.get("ping_gateway", False)
+    
+    # Default mappings to preserve backwards compatibility with DOCX templates (which expect WAN1, WAN2, WAN3)
+    mapping = options.get("interface_mapping", {
+        "wan1": "WAN1",
+        "wan2": "WAN2",
+        "internal5": "WAN3",
+        "port5": "WAN3"
+    })
+    
+    gateways = {}
+    if ping_gateway and ping_intfs:
+        print(f"[{host}] ping_gateway is enabled. Fetching static routes to find gateways...")
         try:
-            wan3_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='internal5' i]")
-        except:
-            wan3_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='port5' i]")
+            driver.get(f"https://{host}/ng/routing/static/")
+            time.sleep(3) # Wait for table load
             
-        wan3_status = wan3_element.get_attribute("link")
-        wan3_clean = wan3_status.strip().upper() if wan3_status else ""
+            # Find the default routes (0.0.0.0/0)
+            rows = driver.find_elements(By.XPATH, "//div[contains(concat(' ', normalize-space(@class), ' '), ' row ')]")
+            for row in rows:
+                try:
+                    dst = row.find_element(By.CSS_SELECTOR, "div[column-id='dst']").text.strip()
+                    if dst == "0.0.0.0/0":
+                        gw = row.find_element(By.CSS_SELECTOR, "div[column-id='gateway']").text.strip()
+                        intf_text = row.find_element(By.CSS_SELECTOR, "div[column-id='$intf']").text.strip()
+                        
+                        # Check which interface this default route belongs to
+                        for intf in ping_intfs:
+                            if f"({intf})" in intf_text or intf == intf_text or intf in intf_text:
+                                gateways[intf.lower()] = gw
+                except:
+                    pass
+            print(f"[{host}] Extracted gateways: {gateways}")
+            
+            # Navigate back to interface page
+            driver.get(f"https://{host}/ng/interface")
+            time.sleep(3)
+        except Exception as e:
+            print(f"[{host}] Failed to extract gateways: {e}")
+            
+    for intf in diagnose_intfs:
+        intf_lower = intf.lower()
+        key = mapping.get(intf_lower, intf.upper())
         
-        wan3_ip, wan3_mask, wan3_latency = _get_wan_details(driver, wan3_name)
-        
-        if wan3_clean == "UP":
-            print(f"[{host}] Found port5/internal5 physically UP.")
-            wan_status["WAN3"] = "UP"
-            wan_status["WAN3_IP"] = wan3_ip
-            wan_status["WAN3_MASK"] = wan3_mask
-            wan_status["WAN3_LATENCY"] = wan3_latency
-        elif wan3_configured:
-            print(f"[{host}] Found port5/internal5 DOWN but it is configured in the table.")
-            wan_status["WAN3"] = "DOWN"
-            wan_status["WAN3_IP"] = wan3_ip
-            wan_status["WAN3_MASK"] = wan3_mask
-            wan_status["WAN3_LATENCY"] = wan3_latency
-        else:
-            print(f"[{host}] port5/internal5 is DOWN and not explicitly configured in the table. Ignoring.")
+        try:
+            # Locate the interface status box/icon
+            el = driver.find_element(By.CSS_SELECTOR, f"div[port-id='{intf}' i]")
+            status = el.get_attribute("link")
+            status_clean = status.strip().upper() if status else "UNKNOWN"
             
-    except Exception as e:
-        if wan3_configured:
-            print(f"[{host}] Configured port5/internal5 not found in faceplate. Setting as UNKNOWN.")
-            wan_status["WAN3"] = "UNKNOWN"
+            ip, mask = _get_wan_details(driver, intf)
+            latency = ""
             
+            # Only ping if requested AND if the physical status is UP
+            if status_clean == "UP" and intf_lower in [p.lower() for p in ping_intfs]:
+                target_ip = None
+                if ping_gateway:
+                    target_ip = gateways.get(intf_lower)
+                    if target_ip:
+                        print(f"[{host}] Pinging {intf} gateway -> {target_ip}")
+                    else:
+                        print(f"[{host}] Gateway for {intf} not found, falling back to interface IP -> {ip}")
+                        target_ip = ip
+                else:
+                    target_ip = ip
+                    print(f"[{host}] Pinging {intf} interface IP -> {target_ip}")
+                
+                if target_ip:
+                    latency = ping_host(target_ip)
+            
+            # To avoid overwriting internal5 with port5 if both are passed and mapped to WAN3
+            if key not in wan_status or wan_status[key] == "NOT FOUND":
+                wan_status[key] = status_clean
+                wan_status[f"{key}_IP"] = ip
+                wan_status[f"{key}_MASK"] = mask
+                wan_status[f"{key}_LATENCY"] = latency
+                
+        except Exception as e:
+            if key not in wan_status:
+                wan_status[key] = "NOT FOUND"
+                wan_status[f"{key}_IP"] = ""
+                wan_status[f"{key}_MASK"] = ""
+                wan_status[f"{key}_LATENCY"] = ""
+
     return wan_status
 
 def handle(host, alert_info, options):
@@ -254,14 +271,13 @@ def handle(host, alert_info, options):
             result["screenshot_path"] = screenshot_path
             print(f"[{host}] Screenshot saved at {screenshot_path}")
 
-        # 4. Extract WAN1, WAN2 and conditionally WAN3 status
-        result["wan_status"] = _extract_wan_status(driver, host)
+        # 4. Extract Interface status and run latency checks
+        result["wan_status"] = _extract_wan_status(driver, host, options)
         
         # Populate universal latencies array for exporters
         latencies = []
-        for key in ["WAN1_LATENCY", "WAN2_LATENCY", "WAN3_LATENCY"]:
-            val = result["wan_status"].get(key)
-            if val:
+        for key, val in result["wan_status"].items():
+            if key.endswith("_LATENCY") and val:
                 try:
                     latencies.append(int(val))
                 except:
