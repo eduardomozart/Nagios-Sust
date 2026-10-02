@@ -20,9 +20,25 @@ def _diagnose_template_error(template_path):
             
             print("\n    --- Template Tags Found (In Order) ---")
             for i, tag in enumerate(tags):
-                print(f"    Line {i+1}: {tag}")
+                print(f"    Tag {i+1}: {tag}")
             print("    --------------------------------------")
             
+            # Deep XML analysis to detect the "{%p mixed with other tags" issue
+            paragraphs = re.findall(r'<w:p\b.*?</w:p>', xml, flags=re.DOTALL)
+            conflict_found = False
+            for p_idx, p_xml in enumerate(paragraphs):
+                p_text = re.sub(r'<[^>]+>', '', p_xml)
+                p_tags = re.findall(r'\{[%\{].*?[%\}]\}', p_text)
+                if len(p_tags) > 1 and any(t.startswith('{%p') for t in p_tags):
+                    print(f"    [Diagnosis] CRITICAL: Found a paragraph containing multiple tags including a {{%p tag!")
+                    print(f"                Word Paragraph {p_idx+1} contains: {', '.join(p_tags)}")
+                    print(f"                The engine will delete this entire paragraph, destroying the other tags inside it.")
+                    conflict_found = True
+                    break
+                    
+            if conflict_found:
+                return
+
             # Validate tag pairs
             stack = []
             for i, tag in enumerate(tags):
@@ -41,29 +57,26 @@ def _diagnose_template_error(template_path):
                 elif cmd in ('endif', 'endfor', 'p endif', 'p endfor', 'else', 'p else'):
                     if cmd in ('else', 'p else'):
                         if not stack or not stack[-1][1].endswith('if'):
-                            print(f"    [Diagnosis] Syntax Error on Line {i+1}: Found '{tag}' without an opening 'if'.")
+                            print(f"    [Diagnosis] Syntax Error on Tag {i+1}: Found '{tag}' without an opening 'if'.")
                             return
                         continue
                     
                     expected_opener = cmd.replace('end', '')
                     if not stack:
-                        print(f"    [Diagnosis] Syntax Error on Line {i+1}: Found '{tag}' but there are no open blocks.")
+                        print(f"    [Diagnosis] Syntax Error on Tag {i+1}: Found '{tag}' but there are no open blocks.")
                         return
                     
                     last_open = stack.pop()
                     if last_open[1] != expected_opener:
-                        print(f"    [Diagnosis] Syntax Error on Line {i+1}: Found '{tag}' but expected closing for '{last_open[2]}' from Line {last_open[0]}.")
+                        print(f"    [Diagnosis] Syntax Error on Tag {i+1}: Found '{tag}' but expected closing for '{last_open[2]}' from Tag {last_open[0]}.")
                         return
                         
             if stack:
                 unclosed = stack[-1]
-                print(f"    [Diagnosis] Syntax Error: Reached end of document but '{unclosed[2]}' from Line {unclosed[0]} was never closed.")
+                print(f"    [Diagnosis] Syntax Error: Reached end of document but '{unclosed[2]}' from Tag {unclosed[0]} was never closed.")
             else:
                 print("    [Diagnosis] The tags are logically balanced! However, the template engine is still crashing.")
-                print("                This almost always happens when you place a paragraph tag (like {%p endif %})")
-                print("                on the EXACT SAME LINE as a regular tag (like {% if %}) in Word.")
-                print("                The engine deletes the entire line containing the {%p, which accidentally")
-                print("                deletes your regular tag along with it, breaking the logic!")
+                print("                Check your Word document for invisible formatting issues or typos.")
                 
     except Exception:
         pass
