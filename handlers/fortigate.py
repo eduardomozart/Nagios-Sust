@@ -10,14 +10,14 @@ from utils.network import ip_netmask_to_cidr, ping_host
 
 def _get_wan_details(driver, interface_name):
     try:
-        # Find the element containing the exact interface name
-        elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '({interface_name})') or text()='{interface_name}']")
+        # Find the element containing the exact interface name (with or without parenthesis, and handle leading/trailing spaces)
+        elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '({interface_name})') or normalize-space(text())='{interface_name}']")
         for el in elements:
             try:
                 # Go up the DOM tree to find the parent table row (tr or div.row)
                 parent = el.find_element(By.XPATH, "./ancestor::tr | ./ancestor::div[contains(@class, 'row')]")
-                # Use Regex to extract the IP address and Netmask/CIDR from the row's plain text
-                match = re.search(r'\b\d{1,3}(?:\.\d{1,3}){3}(?:/(?:\d{1,3}(?:\.\d{1,3}){3}|\d{1,2}))\b', parent.text)
+                # Use Regex to extract the IP address and optional Netmask/CIDR from the row's plain text
+                match = re.search(r'\b\d{1,3}(?:\.\d{1,3}){3}(?:/(?:\d{1,3}(?:\.\d{1,3}){3}|\d{1,2}))?\b', parent.text)
                 if match:
                     ip, mask = ip_netmask_to_cidr(match.group(0))
                     latency = ping_host(ip)
@@ -61,10 +61,10 @@ def _extract_wan_status(driver, host):
     wan3_configured = False
     wan3_name = "internal5"
     try:
-        elements = driver.find_elements(By.XPATH, "//span[contains(text(), '(internal5)') or contains(text(), '(port5)')]")
+        elements = driver.find_elements(By.XPATH, "//*[contains(text(), '(internal5)') or contains(text(), '(port5)') or normalize-space(text())='internal5' or normalize-space(text())='port5']")
         if elements:
             wan3_configured = True
-            if '(port5)' in elements[0].text:
+            if 'port5' in elements[0].text:
                 wan3_name = "port5"
     except Exception:
         pass
