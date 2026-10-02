@@ -141,6 +141,7 @@ def main():
             # Inject the global state into options
             options["credential_provider"] = get_global_credentials
             options["execution_timestamp"] = execution_timestamp
+            options["base_dir"] = base_dir
             
             try:
                 handler_module = importlib.import_module(f"handlers.{handler_name}")

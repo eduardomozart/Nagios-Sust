@@ -37,15 +37,17 @@ def _extract_wan_status(driver, host):
             wan3_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='port5' i]")
             
         wan3_status = wan3_element.get_attribute("link")
+        wan3_clean = wan3_status.strip().upper() if wan3_status else ""
         
-        if wan3_configured:
-            if wan3_status:
-                wan3_clean = wan3_status.strip().upper()
-                print(f"[{host}] Found port5/internal5 with link status: '{wan3_clean}'")
-                wan_status["WAN3"] = wan3_clean
-            else:
-                print(f"[{host}] Found port5/internal5 but 'link' attribute is empty. Setting as DOWN.")
-                wan_status["WAN3"] = "DOWN"
+        if wan3_clean == "UP":
+            print(f"[{host}] Found port5/internal5 physically UP.")
+            wan_status["WAN3"] = "UP"
+        elif wan3_configured:
+            print(f"[{host}] Found port5/internal5 DOWN but it is configured in the table.")
+            wan_status["WAN3"] = "DOWN"
+        else:
+            print(f"[{host}] port5/internal5 is DOWN and not explicitly configured in the table. Ignoring.")
+            
     except Exception as e:
         if wan3_configured:
             print(f"[{host}] Configured port5/internal5 not found in faceplate. Setting as UNKNOWN.")
