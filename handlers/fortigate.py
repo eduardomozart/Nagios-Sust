@@ -65,14 +65,33 @@ def _extract_wan_status(driver, host, options):
     ping_intfs = options.get("ping_interfaces", ["wan1", "wan2"])
     ping_gateway = options.get("ping_gateway", False)
     
-    # Default mappings to preserve backwards compatibility with DOCX templates (which expect WAN1, WAN2, WAN3)
-    mapping = options.get("interface_mapping", {
-        "wan1": "WAN1",
-        "wan2": "WAN2",
-        "internal5": "WAN3",
-        "port5": "WAN3"
-    })
-    
+    # 1. We are already on /ng/interface. Extract IP, mask, and link status.
+    intf_data = {}
+    for intf in diagnose_intfs:
+        intf_lower = intf.lower()
+        key = intf.upper()
+        try:
+            # Locate the interface status box/icon
+            el = driver.find_element(By.CSS_SELECTOR, f"div[port-id='{intf}' i]")
+            status = el.get_attribute("link")
+            status_clean = status.strip().upper() if status else "UNKNOWN"
+            ip, mask = _get_wan_details(driver, intf)
+            
+            intf_data[intf_lower] = {
+                "key": key,
+                "status": status_clean,
+                "ip": ip,
+                "mask": mask
+            }
+        except Exception:
+            intf_data[intf_lower] = {
+                "key": key,
+                "status": "NOT FOUND",
+                "ip": "",
+                "mask": ""
+            }
+
+    # 2. If ping_gateway is enabled, go to static routing and find gateways.
     gateways = {}
     if ping_gateway and ping_intfs:
         print(f"[{host}] ping_gateway is enabled. Fetching static routes to find gateways...")
@@ -80,21 +99,61 @@ def _extract_wan_status(driver, host, options):
             driver.get(f"https://{host}/ng/routing/static/")
             time.sleep(3) # Wait for table load
             
-            # Find the default routes (0.0.0.0/0)
             rows = driver.find_elements(By.XPATH, "//div[contains(concat(' ', normalize-space(@class), ' '), ' row ')]")
+            
+            # Group routes by interface: intf_lower -> list of (dst, gw)
+            routes_by_intf = {p.lower(): [] for p in ping_intfs}
+            
             for row in rows:
                 try:
                     dst = row.find_element(By.CSS_SELECTOR, "div[column-id='dst']").text.strip()
-                    if dst == "0.0.0.0/0":
-                        gw = row.find_element(By.CSS_SELECTOR, "div[column-id='gateway']").text.strip()
-                        intf_text = row.find_element(By.CSS_SELECTOR, "div[column-id='$intf']").text.strip()
-                        
-                        # Check which interface this default route belongs to
-                        for intf in ping_intfs:
-                            if f"({intf})" in intf_text or intf == intf_text or intf in intf_text:
-                                gateways[intf.lower()] = gw
+                    gw = row.find_element(By.CSS_SELECTOR, "div[column-id='gateway']").text.strip()
+                    intf_text = row.find_element(By.CSS_SELECTOR, "div[column-id='$intf']").text.strip()
+                    
+                    for intf in ping_intfs:
+                        if f"({intf})" in intf_text or intf == intf_text or intf in intf_text:
+                            routes_by_intf[intf.lower()].append((dst, gw))
                 except:
-                    pass
+                    continue
+                    
+            import ipaddress
+            
+            for intf, routes in routes_by_intf.items():
+                if not routes:
+                    continue
+                    
+                # Priority 1: Default route 0.0.0.0/0
+                default_gw = next((gw for dst, gw in routes if dst == "0.0.0.0/0" and gw), None)
+                if default_gw:
+                    gateways[intf] = default_gw
+                    continue
+                
+                # Priority 2: Gateway matches the subnet of the interface IP
+                data = intf_data.get(intf)
+                best_gw = None
+                if data and data["ip"] and data["mask"]:
+                    try:
+                        intf_network = ipaddress.IPv4Network(f"{data['ip']}/{data['mask']}", strict=False)
+                        for dst, gw in routes:
+                            if not gw: continue
+                            try:
+                                gw_ip = ipaddress.IPv4Address(gw)
+                                if gw_ip in intf_network:
+                                    best_gw = gw
+                                    break
+                            except:
+                                pass
+                    except:
+                        pass
+                
+                if best_gw:
+                    gateways[intf] = best_gw
+                else:
+                    # Priority 3: Fallback to the first route's gateway we found for this interface
+                    first_gw = next((gw for dst, gw in routes if gw), None)
+                    if first_gw:
+                        gateways[intf] = first_gw
+                        
             print(f"[{host}] Extracted gateways: {gateways}")
             
             # Navigate back to interface page
@@ -103,49 +162,38 @@ def _extract_wan_status(driver, host, options):
         except Exception as e:
             print(f"[{host}] Failed to extract gateways: {e}")
             
+    # 3. Assemble final wan_status and run pings
     for intf in diagnose_intfs:
         intf_lower = intf.lower()
-        key = mapping.get(intf_lower, intf.upper())
+        data = intf_data[intf_lower]
+        key = data["key"]
         
-        try:
-            # Locate the interface status box/icon
-            el = driver.find_element(By.CSS_SELECTOR, f"div[port-id='{intf}' i]")
-            status = el.get_attribute("link")
-            status_clean = status.strip().upper() if status else "UNKNOWN"
-            
-            ip, mask = _get_wan_details(driver, intf)
-            latency = ""
-            
-            # Only ping if requested AND if the physical status is UP
-            if status_clean == "UP" and intf_lower in [p.lower() for p in ping_intfs]:
-                target_ip = None
-                if ping_gateway:
-                    target_ip = gateways.get(intf_lower)
-                    if target_ip:
-                        print(f"[{host}] Pinging {intf} gateway -> {target_ip}")
-                    else:
-                        print(f"[{host}] Gateway for {intf} not found, falling back to interface IP -> {ip}")
-                        target_ip = ip
-                else:
-                    target_ip = ip
-                    print(f"[{host}] Pinging {intf} interface IP -> {target_ip}")
-                
+        status_clean = data["status"]
+        ip = data["ip"]
+        mask = data["mask"]
+        latency = ""
+        
+        # Only ping if requested AND if the physical status is UP
+        if status_clean == "UP" and intf_lower in [p.lower() for p in ping_intfs]:
+            target_ip = None
+            if ping_gateway:
+                target_ip = gateways.get(intf_lower)
                 if target_ip:
-                    latency = ping_host(target_ip)
+                    print(f"[{host}] Pinging {intf} gateway -> {target_ip}")
+                else:
+                    print(f"[{host}] Gateway for {intf} not found, falling back to interface IP -> {ip}")
+                    target_ip = ip
+            else:
+                target_ip = ip
+                print(f"[{host}] Pinging {intf} interface IP -> {target_ip}")
             
-            # To avoid overwriting internal5 with port5 if both are passed and mapped to WAN3
-            if key not in wan_status or wan_status[key] == "NOT FOUND":
-                wan_status[key] = status_clean
-                wan_status[f"{key}_IP"] = ip
-                wan_status[f"{key}_MASK"] = mask
-                wan_status[f"{key}_LATENCY"] = latency
-                
-        except Exception as e:
-            if key not in wan_status:
-                wan_status[key] = "NOT FOUND"
-                wan_status[f"{key}_IP"] = ""
-                wan_status[f"{key}_MASK"] = ""
-                wan_status[f"{key}_LATENCY"] = ""
+            if target_ip:
+                latency = ping_host(target_ip)
+        
+        wan_status[key] = status_clean
+        wan_status[f"{key}_IP"] = ip
+        wan_status[f"{key}_MASK"] = mask
+        wan_status[f"{key}_LATENCY"] = latency
 
     return wan_status
 
