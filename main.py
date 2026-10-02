@@ -19,8 +19,11 @@ from utils.dialog import open_file_dialog
 _cached_username = None
 _cached_password = None
 
-def get_global_credentials():
+def get_global_credentials(force_prompt=False):
     global _cached_username, _cached_password
+    if force_prompt:
+        _cached_username = None
+        _cached_password = None
     if not _cached_username:
         _cached_username = input("Enter Username: ")
     if not _cached_password:
