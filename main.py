@@ -1,7 +1,16 @@
-import yaml
-import importlib
 import sys
 import os
+
+VERSION = "DEV_BUILD"
+
+# Print header immediately before heavy imports
+print("========================================")
+print(f" Nagios Sustenance Automation v{VERSION} ")
+print("========================================\n")
+print("Initializing modules... (This may take a few seconds)\n")
+
+import yaml
+import importlib
 import getpass
 import tkinter as tk
 from tkinter import filedialog
@@ -75,6 +84,7 @@ def main():
     base_dir = get_base_dir()
     pdf_default_path = os.path.join(base_dir, pdf_file_name)
     
+    print(f"Checking for report file: {pdf_file_name}...")
     pdf_path = get_pdf_file_path(pdf_default_path)
     
     print(f"Reading PDF: {pdf_path}")
@@ -93,7 +103,7 @@ def main():
         
         if rule:
             handler_name = rule["handler"]
-            print(f"Host '{host}' matched rule '{rule['name']}'. Executing handler '{handler_name}'...")
+            print(f"\nHost '{host}' matched rule '{rule['name']}'. Executing handler '{handler_name}'...")
             
             options = rule.get("options", {})
             # Inject the global credential provider into options
@@ -113,6 +123,7 @@ def main():
         return
 
     # Process Exporters
+    print("\nProcessing evidence reports...")
     for exporter_config in config.get("exporters", []):
         exporter_type = exporter_config["type"]
         print(f"Running exporter: {exporter_type}")

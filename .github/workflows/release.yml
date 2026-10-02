@@ -27,6 +27,10 @@ jobs:
         pip install pyinstaller
         pip install -r requirements.txt
 
+    - name: Inject Version
+      run: |
+        (Get-Content main.py) -replace 'VERSION = "DEV_BUILD"', "VERSION = `"${{ github.ref_name }}`"" | Set-Content main.py
+
     - name: Build executable
       run: |
         pyinstaller --onefile --name Nagios-Sust-x64 --hidden-import handlers.fortigate --hidden-import exporters.docx_exporter main.py
@@ -37,12 +41,12 @@ jobs:
         copy dist\Nagios-Sust-x64.exe release_package\
         copy config.yaml release_package\
         copy template.docx release_package\
-        Compress-Archive -Path release_package\* -DestinationPath Nagios-Sust_release.zip
+        Compress-Archive -Path release_package\* -DestinationPath Nagios-Sust-win-x64.zip
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        files: Nagios-Sust_release.zip
+        files: Nagios-Sust-win-x64.zip
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
