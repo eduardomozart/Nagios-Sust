@@ -10,7 +10,20 @@ A modular, automated tool to collect evidence from network equipment based on Na
 - **Smart Credential Management**: Prompts for your password only once per execution.
 - **Standalone Executable**: Distributed as an unpacked `.zip` for instant startup on Windows — no Python installation required.
 
-## Getting Started (Python Source)
+## Getting Started
+The easiest way to run Nagios-Sust is by using the pre-compiled Windows executable provided in the repository releases. No Python installation is required!
+
+1. Download the latest `.zip` release artifact from the [Releases page](../../releases).
+2. Extract the folder anywhere on your computer.
+3. **Important Initial Setup**:
+   - Rename `config.example.yaml` to `config.yaml`.
+   - Rename `template_pt-BR.example.docx` to `template_pt-BR.docx` (or do the same for the English one).
+4. Run the program:
+   - Double-click `Nagios-Sust-x64.exe`
+   - If a Nagios PDF is not found in the same folder, a native file explorer dialog will pop up asking you to select it.
+
+## Developer Setup (Python Source)
+If you wish to modify the code, develop new handlers, or run the tool directly from source:
 
 ### Prerequisites
 - Python 3.12+
@@ -19,7 +32,7 @@ A modular, automated tool to collect evidence from network equipment based on Na
 ### Installation
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-org/Nagios-Sust.git
+   git clone https://github.com/eduardomozart/Nagios-Sust.git
    cd Nagios-Sust
    ```
 2. Install dependencies:
@@ -28,20 +41,18 @@ A modular, automated tool to collect evidence from network equipment based on Na
    ```
 
 ### Usage
-1. Place your Nagios export (`report.pdf`) in the project root. If the file is missing, a file explorer dialog will pop up asking you to select it.
-2. Adjust your rules and settings in `config.yaml`.
+1. Copy the example config and template files:
+   ```bash
+   cp config.example.yaml config.yaml
+   cp template_pt-BR.example.docx template_pt-BR.docx
+   ```
+2. Place your Nagios export (`report.pdf`) in the project root, or select it via the UI prompt.
 3. Run the orchestrator:
    ```bash
    python main.py
    ```
-4. The generated report will be saved as `Evidence_Report.docx` (or whatever name is specified in your config).
-
-## Using the Compiled Release
-If you downloaded the `.zip` release artifact from GitHub Actions:
-1. Extract the folder.
-2. Open the extracted folder (which contains the DLLs, `config.yaml`, and `template.docx`).
-3. Double-click `Nagios-Sust-x64.exe`.
+4. The generated report will be saved as `Evidence_Report.docx` (or the equivalent language suffix specified in your config).
 
 ## Documentation
-- 📖 **[User Guide](docs/USER_GUIDE.md)**: Start here to learn how to configure rules, handle Windows file paths, and customize the Word template.
+- 📖 **[User Guide](docs/USER_GUIDE.md)**: Start here to learn how to configure rules, use RegEx matching, generate multi-language reports, and customize the Word template conditional blocks.
 - 🏗️ **[Architecture & Design](docs/ARCHITECTURE.md)**: Deep dive into the code structure, dynamic handlers, and templating engine choices for developers.
