@@ -5,6 +5,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from datetime import datetime
 import time
 import os
+import re
 
 def ip_netmask_to_cidr(ip_netmask):
     if not ip_netmask or '/' not in ip_netmask:
@@ -22,8 +23,6 @@ def ip_netmask_to_cidr(ip_netmask):
             return f"{ip}/{mask}"
     except:
         return ip_netmask
-
-import re
 
 def _get_wan_ip(driver, interface_name):
     try:
