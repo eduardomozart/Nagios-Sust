@@ -61,12 +61,18 @@ def _extract_wan_status(driver, host, options):
     wan_status = {}
     
     # Read configuration
-    diagnose_intfs = options.get("diagnose_interfaces", ["wan1", "wan2", "internal5|port5"])
-    if not isinstance(diagnose_intfs, list): diagnose_intfs = []
-    
-    ping_intfs = options.get("ping_interfaces", ["wan1", "wan2"])
-    if not isinstance(ping_intfs, list): ping_intfs = []
-    
+    diagnose_intfs = options.get("diagnose_interfaces")
+    if diagnose_intfs is None:
+        diagnose_intfs = ["wan1", "wan2"]
+    elif not isinstance(diagnose_intfs, list):
+        diagnose_intfs = []
+        
+    ping_intfs = options.get("ping_interfaces")
+    if ping_intfs is None:
+        ping_intfs = list(diagnose_intfs) # Inherit if omitted
+    elif not isinstance(ping_intfs, list):
+        ping_intfs = [] # Explicitly disabled (e.g. via `{}` or `[]`)
+        
     ping_gateway = options.get("ping_gateway", False)
     
     # 1. We are already on /ng/interface. Extract IP, mask, and link status.
