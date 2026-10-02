@@ -41,9 +41,9 @@ jobs:
         # Move the compiled directory structure into the release folder
         Move-Item -Path dist\Nagios-Sust-x64 -Destination release_package\
         # Copy configuration files inside the executable's directory
-        copy config.yaml release_package\Nagios-Sust-x64\config.example.yaml
-        copy template_en.docx release_package\Nagios-Sust-x64\template_en.example.docx
-        copy template_pt-BR.docx release_package\Nagios-Sust-x64\template_pt-BR.example.docx
+        copy config.example.yaml release_package\Nagios-Sust-x64\
+        copy template_en.example.docx release_package\Nagios-Sust-x64\
+        copy template_pt-BR.example.docx release_package\Nagios-Sust-x64\
         # Create final zip containing the folder contents directly
         Compress-Archive -Path release_package\Nagios-Sust-x64\* -DestinationPath Nagios-Sust-win-x64.zip
 
