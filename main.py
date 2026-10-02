@@ -37,7 +37,9 @@ def load_config(config_file="config.yaml"):
     config_path = os.path.join(base_dir, config_file)
     
     if not os.path.exists(config_path):
-        print(f"Error: Configuration file {config_path} not found.")
+        print(f"Error: Configuration file '{config_file}' not found.")
+        print(f"Please rename 'config.example.yaml' to '{config_file}' and set up your rules.")
+        input("Press Enter to exit...")
         sys.exit(1)
         
     try:
@@ -58,7 +60,6 @@ def match_rule(host, rules):
             prefix = str(host_filter["startswith"])
             if host.startswith(prefix):
                 return rule
-        # Additional filter types can be added here (e.g., regex, endswith)
     return None
 
 def get_pdf_file_path(default_path):

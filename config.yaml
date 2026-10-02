@@ -7,7 +7,7 @@ credentials:
   password: ""
 
 rules:
-  - name: "FortiGate Sustenance"
+  - name: "FortiGate"
     host_filter:
       startswith: "FGT"
     handler: "fortigate"

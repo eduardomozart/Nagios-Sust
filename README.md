@@ -1,4 +1,4 @@
-# Nagios Sustenance Automation (Nagios-Sust)
+# Nagios-Sust
 
 A modular, automated tool to collect evidence from network equipment based on Nagios Service Status PDF reports.
 
