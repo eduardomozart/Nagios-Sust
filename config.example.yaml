@@ -31,8 +31,7 @@ rules:
       diagnose_interfaces:
         - "wan1"
         - "wan2"
-        - "internal5"
-        - "port5"
+        - "internal5|port5" # Use '|' to provide fallbacks for mixed hardware
       ping_interfaces:
         - "wan1"
         - "wan2"

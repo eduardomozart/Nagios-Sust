@@ -61,34 +61,52 @@ def _extract_wan_status(driver, host, options):
     wan_status = {}
     
     # Read configuration
-    diagnose_intfs = options.get("diagnose_interfaces", ["wan1", "wan2", "internal5", "port5"])
+    diagnose_intfs = options.get("diagnose_interfaces", ["wan1", "wan2", "internal5|port5"])
     ping_intfs = options.get("ping_interfaces", ["wan1", "wan2"])
     ping_gateway = options.get("ping_gateway", False)
     
     # 1. We are already on /ng/interface. Extract IP, mask, and link status.
     intf_data = {}
-    for intf in diagnose_intfs:
-        intf_lower = intf.lower()
-        key = intf.upper()
+    for intf_config in diagnose_intfs:
+        # Support aliases like 'internal5|port5'
+        aliases = [a.strip() for a in intf_config.split('|')]
+        primary_intf = aliases[0]
+        intf_lower = primary_intf.lower()
+        key = primary_intf.upper()
+        
+        el = None
+        used_alias = primary_intf
+        
+        for alias in aliases:
+            try:
+                el = driver.find_element(By.CSS_SELECTOR, f"div[port-id='{alias}' i]")
+                used_alias = alias
+                break
+            except:
+                pass
+                
         try:
-            # Locate the interface status box/icon
-            el = driver.find_element(By.CSS_SELECTOR, f"div[port-id='{intf}' i]")
-            status = el.get_attribute("link")
-            status_clean = status.strip().upper() if status else "UNKNOWN"
-            ip, mask = _get_wan_details(driver, intf)
-            
-            intf_data[intf_lower] = {
-                "key": key,
-                "status": status_clean,
-                "ip": ip,
-                "mask": mask
-            }
+            if el:
+                status = el.get_attribute("link")
+                status_clean = status.strip().upper() if status else "UNKNOWN"
+                ip, mask = _get_wan_details(driver, used_alias)
+                
+                intf_data[intf_lower] = {
+                    "key": key,
+                    "status": status_clean,
+                    "ip": ip,
+                    "mask": mask,
+                    "aliases": aliases
+                }
+            else:
+                raise Exception("Not found")
         except Exception:
             intf_data[intf_lower] = {
                 "key": key,
                 "status": "NOT FOUND",
                 "ip": "",
-                "mask": ""
+                "mask": "",
+                "aliases": aliases
             }
 
     # 2. If ping_gateway is enabled, go to static routing and find gateways.
@@ -101,8 +119,8 @@ def _extract_wan_status(driver, host, options):
             
             rows = driver.find_elements(By.XPATH, "//div[contains(concat(' ', normalize-space(@class), ' '), ' row ')]")
             
-            # Group routes by interface: intf_lower -> list of (dst, gw)
-            routes_by_intf = {p.lower(): [] for p in ping_intfs}
+            # Group routes by primary interface lower name
+            routes_by_intf = {p.split('|')[0].strip().lower(): [] for p in ping_intfs}
             
             for row in rows:
                 try:
@@ -110,26 +128,30 @@ def _extract_wan_status(driver, host, options):
                     gw = row.find_element(By.CSS_SELECTOR, "div[column-id='gateway']").text.strip()
                     intf_text = row.find_element(By.CSS_SELECTOR, "div[column-id='$intf']").text.strip()
                     
-                    for intf in ping_intfs:
-                        if f"({intf})" in intf_text or intf == intf_text or intf in intf_text:
-                            routes_by_intf[intf.lower()].append((dst, gw))
+                    for p_conf in ping_intfs:
+                        p_aliases = [a.strip() for a in p_conf.split('|')]
+                        p_primary = p_aliases[0].lower()
+                        for alias in p_aliases:
+                            if f"({alias})" in intf_text or alias == intf_text or alias in intf_text:
+                                routes_by_intf[p_primary].append((dst, gw))
+                                break
                 except:
                     continue
                     
             import ipaddress
             
-            for intf, routes in routes_by_intf.items():
+            for intf_primary, routes in routes_by_intf.items():
                 if not routes:
                     continue
                     
                 # Priority 1: Default route 0.0.0.0/0
                 default_gw = next((gw for dst, gw in routes if dst == "0.0.0.0/0" and gw), None)
                 if default_gw:
-                    gateways[intf] = default_gw
+                    gateways[intf_primary] = default_gw
                     continue
                 
                 # Priority 2: Gateway matches the subnet of the interface IP
-                data = intf_data.get(intf)
+                data = intf_data.get(intf_primary)
                 best_gw = None
                 if data and data["ip"] and data["mask"]:
                     try:
@@ -147,12 +169,12 @@ def _extract_wan_status(driver, host, options):
                         pass
                 
                 if best_gw:
-                    gateways[intf] = best_gw
+                    gateways[intf_primary] = best_gw
                 else:
                     # Priority 3: Fallback to the first route's gateway we found for this interface
                     first_gw = next((gw for dst, gw in routes if gw), None)
                     if first_gw:
-                        gateways[intf] = first_gw
+                        gateways[intf_primary] = first_gw
                         
             print(f"[{host}] Extracted gateways: {gateways}")
             
@@ -163,8 +185,9 @@ def _extract_wan_status(driver, host, options):
             print(f"[{host}] Failed to extract gateways: {e}")
             
     # 3. Assemble final wan_status and run pings
-    for intf in diagnose_intfs:
-        intf_lower = intf.lower()
+    for intf_config in diagnose_intfs:
+        primary_intf = intf_config.split('|')[0].strip()
+        intf_lower = primary_intf.lower()
         data = intf_data[intf_lower]
         key = data["key"]
         
@@ -173,19 +196,26 @@ def _extract_wan_status(driver, host, options):
         mask = data["mask"]
         latency = ""
         
+        # Check if this interface was requested for pinging
+        wants_ping = False
+        for p_conf in ping_intfs:
+            if p_conf.split('|')[0].strip().lower() == intf_lower:
+                wants_ping = True
+                break
+                
         # Only ping if requested AND if the physical status is UP
-        if status_clean == "UP" and intf_lower in [p.lower() for p in ping_intfs]:
+        if status_clean == "UP" and wants_ping:
             target_ip = None
             if ping_gateway:
                 target_ip = gateways.get(intf_lower)
                 if target_ip:
-                    print(f"[{host}] Pinging {intf} gateway -> {target_ip}")
+                    print(f"[{host}] Pinging {primary_intf} gateway -> {target_ip}")
                 else:
-                    print(f"[{host}] Gateway for {intf} not found, falling back to interface IP -> {ip}")
+                    print(f"[{host}] Gateway for {primary_intf} not found, falling back to interface IP -> {ip}")
                     target_ip = ip
             else:
                 target_ip = ip
-                print(f"[{host}] Pinging {intf} interface IP -> {target_ip}")
+                print(f"[{host}] Pinging {primary_intf} interface IP -> {target_ip}")
             
             if target_ip:
                 latency = ping_host(target_ip)
