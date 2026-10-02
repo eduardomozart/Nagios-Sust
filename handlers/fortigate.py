@@ -224,6 +224,17 @@ def handle(host, alert_info, options):
 
         # 4. Extract WAN1, WAN2 and conditionally WAN3 status
         result["wan_status"] = _extract_wan_status(driver, host)
+        
+        # Populate universal latencies array for exporters
+        latencies = []
+        for key in ["WAN1_LATENCY", "WAN2_LATENCY", "WAN3_LATENCY"]:
+            val = result["wan_status"].get(key)
+            if val:
+                try:
+                    latencies.append(int(val))
+                except:
+                    pass
+        result["latencies"] = latencies
 
         wan_str = ", ".join([f"{k}={v}" for k, v in result["wan_status"].items()])
         print(f"[{host}] Collected status: {wan_str}")

@@ -130,15 +130,8 @@ def export(results, config):
             host = res.get("host", "Unknown")
             wan_stats = res.get("wan_status", {})
             
-            # Grab all valid pings for this host
-            pings = []
-            for key in ["WAN1_LATENCY", "WAN2_LATENCY", "WAN3_LATENCY"]:
-                val = wan_stats.get(key, "")
-                if val:
-                    try:
-                        pings.append(int(val))
-                    except:
-                        pass
+            # Grab all valid pings for this host from the standardized array
+            pings = res.get("latencies", [])
                         
             if pings:
                 worst_ping = max(pings) # Evaluate health based on their worst active link
