@@ -18,17 +18,11 @@ def ping_host(ip_address):
         
         output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, universal_newlines=True)
         
-        # Parse latency
-        if platform.system().lower() == 'windows':
-            # Match "time=15ms", "time<1ms", "tempo=15ms" or "tempo<1ms"
-            match = re.search(r'(?:time|tempo)[=<]([0-9]+)ms', output, re.IGNORECASE)
-            if match:
-                return match.group(1)
-        else:
-            # Match "time=15.1 ms"
-            match = re.search(r'time=([0-9\.]+) ms', output, re.IGNORECASE)
-            if match:
-                return match.group(1)
+        # Parse latency using a math-based regex that ignores translations (time, tempo, zeit, etc.)
+        match = re.search(r'[=<]\s*([0-9]+(?:\.[0-9]+)?)\s*ms', output, re.IGNORECASE)
+        if match:
+            # Drop decimal part if any for cleaner reports, or keep as float
+            return str(int(float(match.group(1))))
                 
     except Exception:
         return ""
