@@ -221,11 +221,13 @@ def _extract_wan_status(driver, host, options):
             if target_ip:
                 latency = ping_host(target_ip)
         
-        wan_status[key] = status_clean
-        wan_status[f"{key}_IP"] = ip
-        wan_status[f"{key}_MASK"] = mask
-        wan_status[f"{key}_GW"] = gw_found
-        wan_status[f"{key}_LATENCY"] = latency
+        wan_status[key] = {
+            "status": status_clean,
+            "ip": ip,
+            "mask": mask,
+            "gw": gw_found,
+            "latency": latency
+        }
 
     return wan_status
 
@@ -356,8 +358,9 @@ def handle(host, alert_info, options):
         
         # Populate universal latencies array for exporters
         latencies = []
-        for key, val in result["wan_status"].items():
-            if key.endswith("_LATENCY") and val:
+        for intf_key, intf_data in result["wan_status"].items():
+            val = intf_data.get("latency")
+            if val:
                 try:
                     latencies.append(int(val))
                 except:
