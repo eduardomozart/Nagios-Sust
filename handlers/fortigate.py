@@ -92,82 +92,65 @@ def handle(host, alert_info, options):
         driver.get(url)
         
         # 1. Perform Login
-        while True:
-            # If the driver was closed due to an auth failure retry, reopen it
+        print(f"[{host}] Waiting for login screen...")
+        user_field = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.ID, "username")) 
+        )
+        user_field.clear()
+        user_field.send_keys(username)
+        
+        pass_field = driver.find_element(By.ID, "secretkey")
+        pass_field.clear()
+        pass_field.send_keys(password)
+
+        # Click the Login button based on the provided HTML
+        try:
+            login_btn = driver.find_element(By.ID, "login_button")
+        except:
+            login_btn = driver.find_element(By.CSS_SELECTOR, "button[aria-label='Login Read-Only']")
+            
+        login_btn.click()
+
+        # 2. Wait for the interfaces table, FortiManager prompt, or Authentication failure
+        print(f"[{host}] Login submitted. Waiting for authentication result...")
+        
+        start_time = time.time()
+        fmg_handled = False
+        login_success = False
+        
+        while time.time() - start_time < 30:
+            # Check for authentication failure
             try:
-                driver.current_url
-            except Exception:
-                driver = webdriver.Chrome(options=driver_options)
-                driver.get(url)
+                err_msg = driver.find_element(By.ID, "err_msg")
+                if err_msg.is_displayed():
+                    raise Exception("Authentication Failed. Skipping device.")
+            except Exception as e:
+                if str(e) == "Authentication Failed. Skipping device.":
+                    raise
+                pass
 
-            print(f"[{host}] Waiting for login screen...")
-            user_field = WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.ID, "username")) 
-            )
-            user_field.clear()
-            user_field.send_keys(username)
-            
-            pass_field = driver.find_element(By.ID, "secretkey")
-            pass_field.clear()
-            pass_field.send_keys(password)
-
-            # Click the Login button based on the provided HTML
-            try:
-                login_btn = driver.find_element(By.ID, "login_button")
-            except:
-                login_btn = driver.find_element(By.CSS_SELECTOR, "button[aria-label='Login Read-Only']")
+            # If the interfaces table has appeared, we are done waiting
+            if driver.find_elements(By.CSS_SELECTOR, "table.portgroup") or driver.find_elements(By.CSS_SELECTOR, "div.mutable-table-container"):
+                login_success = True
+                break
                 
-            login_btn.click()
-
-            # 2. Wait for the interfaces table, FortiManager prompt, or Authentication failure
-            print(f"[{host}] Login submitted. Waiting for authentication result...")
+            # If the FortiManager centrally managed prompt appears, click "Login Read-Only"
+            if not fmg_handled:
+                fmg_buttons = driver.find_elements(By.XPATH, "//button[contains(., 'Login Read-Only')]")
+                if fmg_buttons:
+                    print(f"[{host}] FortiManager interception detected. Clicking 'Login Read-Only'...")
+                    try:
+                        fmg_buttons[0].click()
+                        fmg_handled = True
+                    except Exception as e:
+                        print(f"[{host}] Failed to click FortiManager prompt: {e}")
+                        
+            time.sleep(1)
+        else:
+            raise Exception("Timeout waiting for interfaces table to load after login.")
             
-            start_time = time.time()
-            fmg_handled = False
-            login_success = False
-            
-            while time.time() - start_time < 30:
-                # Check for authentication failure
-                try:
-                    err_msg = driver.find_element(By.ID, "err_msg")
-                    if err_msg.is_displayed():
-                        print(f"[{host}] Authentication failure detected.")
-                        if "credential_provider" in options:
-                            print(f"[{host}] Closing browser to prevent interference...")
-                            driver.quit() # Close browser before prompting
-                            
-                            print(f"[{host}] Requesting new credentials...")
-                            username, password = options["credential_provider"](force_prompt=True)
-                            # Update options so subsequent retries use the new credentials
-                            options["username"] = username
-                            options["password"] = password
-                            break # Break the inner wait loop to retry login
-                except:
-                    pass
-
-                # If the interfaces table has appeared, we are done waiting
-                if driver.find_elements(By.CSS_SELECTOR, "table.portgroup") or driver.find_elements(By.CSS_SELECTOR, "div.mutable-table-container"):
-                    login_success = True
-                    break
-                    
-                # If the FortiManager centrally managed prompt appears, click "Login Read-Only"
-                if not fmg_handled:
-                    fmg_buttons = driver.find_elements(By.XPATH, "//button[contains(., 'Login Read-Only')]")
-                    if fmg_buttons:
-                        print(f"[{host}] FortiManager interception detected. Clicking 'Login Read-Only'...")
-                        try:
-                            fmg_buttons[0].click()
-                            fmg_handled = True
-                        except Exception as e:
-                            print(f"[{host}] Failed to click FortiManager prompt: {e}")
-                            
-                time.sleep(1)
-            else:
-                raise Exception("Timeout waiting for interfaces table to load after login.")
-                
-            if login_success:
-                print(f"[{host}] Login successful. Proceeding to collect interfaces...")
-                break # Break the while True loop
+        if login_success:
+            print(f"[{host}] Login successful. Proceeding to collect interfaces...")
 
         
         # Short pause to ensure rendering of icons/states
