@@ -82,6 +82,10 @@ def get_pdf_file_path(default_path):
 def main():
     config = load_config()
     
+    # Generate an execution timestamp to group all screenshots from this run
+    from datetime import datetime
+    execution_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
     # Pre-load global credentials from config if specified
     global _cached_username, _cached_password
     global_creds = config.get("credentials", {})
@@ -118,8 +122,9 @@ def main():
             print(f"\nHost '{host}' matched rule '{rule['name']}'. Executing handler '{handler_name}'...")
             
             options = rule.get("options", {})
-            # Inject the global credential provider into options
+            # Inject the global state into options
             options["credential_provider"] = get_global_credentials
+            options["execution_timestamp"] = execution_timestamp
             
             try:
                 handler_module = importlib.import_module(f"handlers.{handler_name}")

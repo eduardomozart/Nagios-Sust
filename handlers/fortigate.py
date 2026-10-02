@@ -2,6 +2,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from datetime import datetime
 import time
 import os
 
@@ -88,7 +89,18 @@ def handle(host, alert_info, options):
         time.sleep(3)
         
         # 3. Take Screenshot
-        screenshot_path = os.path.abspath(f"screenshot_{host}.png")
+        exec_timestamp = options.get("execution_timestamp", datetime.now().strftime("%Y%m%d_%H%M%S"))
+        # Use the current filename without extension (e.g. 'fortigate')
+        handler_name = os.path.splitext(os.path.basename(__file__))[0]
+        
+        # Create nested screenshots directory: screenshots/<timestamp>/<handler_name>
+        screenshots_dir = os.path.join(os.getcwd(), "screenshots", exec_timestamp, handler_name)
+        os.makedirs(screenshots_dir, exist_ok=True)
+        
+        capture_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        screenshot_filename = f"screenshot_{host}_{capture_timestamp}.png"
+        screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
+        
         driver.save_screenshot(screenshot_path)
         result["screenshot_path"] = screenshot_path
         print(f"[{host}] Screenshot saved at {screenshot_path}")
