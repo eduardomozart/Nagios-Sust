@@ -33,15 +33,18 @@ jobs:
 
     - name: Build executable
       run: |
-        pyinstaller --onefile --name Nagios-Sust-x64 --hidden-import handlers.fortigate --hidden-import exporters.docx_exporter main.py
+        pyinstaller --onedir --name Nagios-Sust-x64 --hidden-import handlers.fortigate --hidden-import exporters.docx_exporter main.py
 
     - name: Prepare Release Package
       run: |
         mkdir release_package
-        copy dist\Nagios-Sust-x64.exe release_package\
-        copy config.yaml release_package\
-        copy template.docx release_package\
-        Compress-Archive -Path release_package\* -DestinationPath Nagios-Sust-win-x64.zip
+        # Move the compiled directory structure into the release folder
+        Move-Item -Path dist\Nagios-Sust-x64 -Destination release_package\
+        # Copy configuration files inside the executable's directory
+        copy config.yaml release_package\Nagios-Sust-x64\
+        copy template.docx release_package\Nagios-Sust-x64\
+        # Create final zip containing the folder
+        Compress-Archive -Path release_package\Nagios-Sust-x64 -DestinationPath Nagios-Sust-win-x64.zip
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
