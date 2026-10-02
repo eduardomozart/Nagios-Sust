@@ -73,9 +73,15 @@ Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Micro
 - `{{ res.wan_status.WAN3 }}`: Link status of port5/internal5 (FortiGate specific, collected automatically if configured in the device's interface table)
 - `{{ res.screenshot }}`: The injected screenshot
 
-You can even use conditional logic directly in Word to show specific text depending on the equipment type. 
-**Pro-Tip**: To completely prevent blank/empty lines when a condition is false, you **must** place the `{%p if ... %}`, your text, and `{%p endif %}` on the **EXACT SAME LINE** (same paragraph) in Word!
+You can even use conditional logic directly in Word to show specific text depending on the equipment type or the presence of an error. 
+
+**Pro-Tip**: To avoid syntax errors (`Encountered unknown tag 'endif'`) and prevent empty blank lines in your final document, you should place every `{%p` tag on its **OWN SEPARATE LINE** (by pressing Enter). 
+The `p` in `{%p` stands for "paragraph". When the template engine reads a `{%p` tag, it will automatically **delete the entire paragraph/line** containing that tag from the final document, so it won't leave any holes or blank spaces!
 
 ```text
-{%p if res.rule_name == "FortiGate Custom Regex" %}Specific text for this group!{%p endif %}
+{%p if res.error %}
+Error: {{ res.error }}
+{%p else %}
+WAN1 Link Status: {{ res.wan_status.WAN1 }}
+{%p endif %}
 ```
