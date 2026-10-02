@@ -6,27 +6,59 @@ from datetime import datetime
 import time
 import os
 
+def ip_netmask_to_cidr(ip_netmask):
+    if not ip_netmask or '/' not in ip_netmask:
+        return ip_netmask
+    try:
+        ip, mask = ip_netmask.split('/')
+        ip = ip.strip()
+        mask = mask.strip()
+        if '.' in mask:
+            parts = [int(p) for p in mask.split('.')]
+            bin_str = ''.join([bin(p).split('b')[1].zfill(8) for p in parts])
+            cidr = str(bin_str.count('1'))
+            return f"{ip}/{cidr}"
+        else:
+            return f"{ip}/{mask}"
+    except:
+        return ip_netmask
+
+def _get_wan_ip(driver, interface_name):
+    try:
+        # Match row by span text like '(wan1)' or direct td name match
+        row = driver.find_element(By.XPATH, f"//tr[.//span[contains(text(), '({interface_name})')] or .//td[contains(@class, 'name') and text()='{interface_name}']]")
+        # Find cell with IP format (contains . and /)
+        ip_cell = row.find_element(By.XPATH, ".//td[contains(text(), '.') and contains(text(), '/')]")
+        ip_text = ip_cell.text.strip()
+        cidr = ip_netmask_to_cidr(ip_text)
+        return f" ({cidr})" if cidr else ""
+    except:
+        return ""
+
 def _extract_wan_status(driver, host):
     wan_status = {}
     try:
         wan1_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan1']")
         wan1_status = wan1_element.get_attribute("link")
-        wan_status["WAN1"] = wan1_status.upper() if wan1_status else "UNKNOWN"
+        wan_status["WAN1"] = (wan1_status.upper() if wan1_status else "UNKNOWN") + _get_wan_ip(driver, "wan1")
     except Exception:
         wan_status["WAN1"] = "NOT FOUND"
         
     try:
         wan2_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan2']")
         wan2_status = wan2_element.get_attribute("link")
-        wan_status["WAN2"] = wan2_status.upper() if wan2_status else "UNKNOWN"
+        wan_status["WAN2"] = (wan2_status.upper() if wan2_status else "UNKNOWN") + _get_wan_ip(driver, "wan2")
     except Exception:
         wan_status["WAN2"] = "NOT FOUND"
         
     wan3_configured = False
+    wan3_name = "internal5"
     try:
         elements = driver.find_elements(By.XPATH, "//span[contains(text(), '(internal5)') or contains(text(), '(port5)')]")
         if elements:
             wan3_configured = True
+            if '(port5)' in elements[0].text:
+                wan3_name = "port5"
     except Exception:
         pass
 
@@ -41,10 +73,10 @@ def _extract_wan_status(driver, host):
         
         if wan3_clean == "UP":
             print(f"[{host}] Found port5/internal5 physically UP.")
-            wan_status["WAN3"] = "UP"
+            wan_status["WAN3"] = "UP" + _get_wan_ip(driver, wan3_name)
         elif wan3_configured:
             print(f"[{host}] Found port5/internal5 DOWN but it is configured in the table.")
-            wan_status["WAN3"] = "DOWN"
+            wan_status["WAN3"] = "DOWN" + _get_wan_ip(driver, wan3_name)
         else:
             print(f"[{host}] port5/internal5 is DOWN and not explicitly configured in the table. Ignoring.")
             
