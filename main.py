@@ -40,8 +40,17 @@ def load_config(config_file="config.yaml"):
     if not os.path.exists(config_path):
         print(f"Error: Configuration file {config_path} not found.")
         sys.exit(1)
-    with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except yaml.YAMLError as exc:
+        print(f"\n[!] Error parsing '{config_file}'!")
+        print("    If you are using Windows paths (like C:\\Users\\...), make sure to:")
+        print("    1. Use forward slashes (e.g., C:/Users/...) OR")
+        print("    2. Use single quotes ('C:\\Users\\...') instead of double quotes.")
+        print(f"\nDetailed YAML Error:\n{exc}")
+        sys.exit(1)
 
 def match_rule(host, rules):
     for rule in rules:
@@ -82,6 +91,7 @@ def main():
     pdf_file_name = config.get("nagios_report", "report.pdf")
     
     base_dir = get_base_dir()
+    # os.path.join safely ignores base_dir if pdf_file_name is already an absolute path
     pdf_default_path = os.path.join(base_dir, pdf_file_name)
     
     print(f"Checking for report file: {pdf_file_name}...")
