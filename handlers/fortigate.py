@@ -15,19 +15,22 @@ def _get_wan_details(driver, interface_name):
         # Find the element containing the exact interface name (with or without parenthesis, and handle leading/trailing spaces)
         elements = driver.find_elements(By.XPATH, xpath)
         
-        # If not found, it might be lazy-loaded in a virtual table. Attempt to scroll down.
-        if not elements:
+        # If not found, it might be lazy-loaded in a virtual table. Attempt to scroll down incrementally.
+        scroll_attempts = 0
+        while not elements and scroll_attempts < 10:
             try:
                 driver.execute_script("""
-                    document.querySelectorAll('.table-container, .mutable-table-container, .mutable').forEach(c => {
-                        c.scrollTop = c.scrollHeight;
+                    document.querySelectorAll('.table-container, .mutable-table-container, .mutable, .vertical-scroller, .scrollers').forEach(c => {
+                        c.scrollTop += 350;
+                        c.dispatchEvent(new Event('scroll', {bubbles: true}));
                     });
                 """)
                 import time
-                time.sleep(1.5) # Wait for virtual DOM to render the new rows
+                time.sleep(0.6) # Wait for virtual DOM to render the new rows
                 elements = driver.find_elements(By.XPATH, xpath)
+                scroll_attempts += 1
             except:
-                pass
+                break
                 
         for el in elements:
             try:
@@ -46,10 +49,12 @@ def _get_wan_details(driver, interface_name):
                 match = re.search(r'(?:^|\b|\D)(\d{1,3}(?:\.\d{1,3}){3}(?:/(?:\d{1,3}(?:\.\d{1,3}){3}|\d{1,2}))?)', row_text)
                 if match:
                     ip, mask = ip_netmask_to_cidr(match.group(1))
-                    
                     latency = ping_host(ip)
                     return ip, mask, latency
-            except:
+                else:
+                    print(f"DEBUG: Found {interface_name} row but IP regex failed. Row text: {row_text}")
+            except Exception as row_e:
+                print(f"DEBUG: Row processing exception for {interface_name}: {row_e}")
                 continue
         return "", "", ""
     except:
