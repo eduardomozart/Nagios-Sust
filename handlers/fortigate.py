@@ -19,8 +19,9 @@ def _get_wan_details(driver, interface_name):
         if not elements:
             try:
                 driver.execute_script("""
-                    let container = document.querySelector('.table-container');
-                    if(container) { container.scrollTop = container.scrollHeight; }
+                    document.querySelectorAll('.table-container, .mutable-table-container, .mutable').forEach(c => {
+                        c.scrollTop = c.scrollHeight;
+                    });
                 """)
                 import time
                 time.sleep(1.5) # Wait for virtual DOM to render the new rows
