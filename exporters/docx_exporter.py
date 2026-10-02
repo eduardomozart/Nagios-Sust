@@ -107,13 +107,53 @@ def export(results, config):
             
         doc = DocxTemplate(template_path)
         
+        # Pre-calculate Summary Analytics
+        summary = {
+            "total": len(results),
+            "ok": 0,
+            "warning": 0,
+            "critical": 0,
+            "no_ping": 0,
+            "warning_hosts": [],
+            "critical_hosts": []
+        }
+        
         # Prepare context for the template
         context = {
-            'results': []
+            'results': [],
+            'summary': summary
         }
         
         for res in results:
             res_context = dict(res)
+            
+            host = res.get("host", "Unknown")
+            wan_stats = res.get("wan_status", {})
+            
+            # Grab all valid pings for this host
+            pings = []
+            for key in ["WAN1_LATENCY", "WAN2_LATENCY", "WAN3_LATENCY"]:
+                val = wan_stats.get(key, "")
+                if val:
+                    try:
+                        pings.append(int(val))
+                    except:
+                        pass
+                        
+            if pings:
+                worst_ping = max(pings) # Evaluate health based on their worst active link
+                if worst_ping <= 50:
+                    summary["ok"] += 1
+                elif worst_ping <= 150:
+                    summary["warning"] += 1
+                    if host not in summary["warning_hosts"]:
+                        summary["warning_hosts"].append(host)
+                else:
+                    summary["critical"] += 1
+                    if host not in summary["critical_hosts"]:
+                        summary["critical_hosts"].append(host)
+            else:
+                summary["no_ping"] += 1
             
             screenshot_path = res.get("screenshot_path")
             if screenshot_path and os.path.exists(screenshot_path):
