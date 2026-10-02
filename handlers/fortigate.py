@@ -16,10 +16,24 @@ def _get_wan_details(driver, interface_name):
             try:
                 # Go up the DOM tree to find the parent table row (tr or div.row)
                 parent = el.find_element(By.XPATH, "./ancestor::tr | ./ancestor::div[contains(@class, 'row')]")
-                # Use Regex to extract the IP address and optional Netmask/CIDR from the row's plain text
-                match = re.search(r'\b\d{1,3}(?:\.\d{1,3}){3}(?:/(?:\d{1,3}(?:\.\d{1,3}){3}|\d{1,2}))?\b', parent.text)
+                
+                # Extract text from individual cells and join with spaces to prevent textContent from concatenating words, which breaks Regex \b boundaries
+                cells = parent.find_elements(By.XPATH, ".//*[self::td or contains(@class, 'cell')]")
+                row_text = " ".join([c.get_attribute("textContent").strip() for c in cells])
+                
+                # If cells extraction failed (e.g., different DOM), fallback to the parent's textContent with relaxed Regex
+                if not row_text:
+                    row_text = parent.get_attribute("textContent")
+                
+                # Regex looking for an IP address (with optional subnet mask)
+                match = re.search(r'(?:^|\b|\D)(\d{1,3}(?:\.\d{1,3}){3}(?:/(?:\d{1,3}(?:\.\d{1,3}){3}|\d{1,2}))?)', row_text)
                 if match:
-                    ip, mask = ip_netmask_to_cidr(match.group(0))
+                    ip, mask = ip_netmask_to_cidr(match.group(1))
+                    
+                    # If it's a 0.0.0.0 IP (failed DHCP), do not ping and return empty latency for TIMEOUT status
+                    if ip == "0.0.0.0":
+                        return ip, mask, ""
+                        
                     latency = ping_host(ip)
                     return ip, mask, latency
             except:
