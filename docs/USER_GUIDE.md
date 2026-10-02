@@ -70,9 +70,13 @@ Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Micro
 - `{{ res.host }}`: The equipment name
 - `{{ res.rule_name }}`: The name of the rule that was matched (e.g., "Generic FortiGate Rule")
 - `{{ res.wan_status.WAN1 }}` / `{{ res.wan_status.WAN2 }}`: Link status of the primary interfaces (UP/DOWN)
-- `{{ res.wan_status.WAN1_IP }}` / `{{ res.wan_status.WAN2_IP }}`: IP address and CIDR mask of the primary interfaces
+- `{{ res.wan_status.WAN1_IP }}` / `{{ res.wan_status.WAN2_IP }}`: The raw IP address of the primary interfaces
+- `{{ res.wan_status.WAN1_MASK }}` / `{{ res.wan_status.WAN2_MASK }}`: The CIDR mask of the primary interfaces
+- `{{ res.wan_status.WAN1_LATENCY }}` / `{{ res.wan_status.WAN2_LATENCY }}`: The ping latency in ms (empty if unreachable)
 - `{{ res.wan_status.WAN3 }}`: Link status of port5/internal5 (FortiGate specific, collected automatically if configured in the device's interface table)
-- `{{ res.wan_status.WAN3_IP }}`: IP address and CIDR mask of port5/internal5
+- `{{ res.wan_status.WAN3_IP }}`: The raw IP address of port5/internal5
+- `{{ res.wan_status.WAN3_MASK }}`: The CIDR mask of port5/internal5
+- `{{ res.wan_status.WAN3_LATENCY }}`: The ping latency of port5/internal5 in ms
 - `{{ res.screenshot }}`: The injected screenshot
 
 You can even use conditional logic directly in Word to show specific text depending on the equipment type or the presence of an error. 

@@ -6,25 +6,9 @@ from datetime import datetime
 import time
 import os
 import re
+from utils.network import ip_netmask_to_cidr, ping_host
 
-def ip_netmask_to_cidr(ip_netmask):
-    if not ip_netmask or '/' not in ip_netmask:
-        return ip_netmask
-    try:
-        ip, mask = ip_netmask.split('/')
-        ip = ip.strip()
-        mask = mask.strip()
-        if '.' in mask:
-            parts = [int(p) for p in mask.split('.')]
-            bin_str = ''.join([bin(p).split('b')[1].zfill(8) for p in parts])
-            cidr = str(bin_str.count('1'))
-            return f"{ip}/{cidr}"
-        else:
-            return f"{ip}/{mask}"
-    except:
-        return ip_netmask
-
-def _get_wan_ip(driver, interface_name):
+def _get_wan_details(driver, interface_name):
     try:
         # Find the element containing the exact interface name
         elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '({interface_name})') or text()='{interface_name}']")
@@ -35,13 +19,14 @@ def _get_wan_ip(driver, interface_name):
                 # Use Regex to extract the IP address and Netmask/CIDR from the row's plain text
                 match = re.search(r'\b\d{1,3}(?:\.\d{1,3}){3}(?:/(?:\d{1,3}(?:\.\d{1,3}){3}|\d{1,2}))\b', parent.text)
                 if match:
-                    cidr = ip_netmask_to_cidr(match.group(0))
-                    return cidr if cidr else ""
+                    ip, mask = ip_netmask_to_cidr(match.group(0))
+                    latency = ping_host(ip)
+                    return ip, mask, latency
             except:
                 continue
-        return ""
+        return "", "", ""
     except:
-        return ""
+        return "", "", ""
 
 def _extract_wan_status(driver, host):
     wan_status = {}
@@ -49,19 +34,29 @@ def _extract_wan_status(driver, host):
         wan1_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan1']")
         wan1_status = wan1_element.get_attribute("link")
         wan_status["WAN1"] = wan1_status.upper() if wan1_status else "UNKNOWN"
-        wan_status["WAN1_IP"] = _get_wan_ip(driver, "wan1")
+        wan1_ip, wan1_mask, wan1_latency = _get_wan_details(driver, "wan1")
+        wan_status["WAN1_IP"] = wan1_ip
+        wan_status["WAN1_MASK"] = wan1_mask
+        wan_status["WAN1_LATENCY"] = wan1_latency
     except Exception:
         wan_status["WAN1"] = "NOT FOUND"
         wan_status["WAN1_IP"] = ""
+        wan_status["WAN1_MASK"] = ""
+        wan_status["WAN1_LATENCY"] = ""
         
     try:
         wan2_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan2']")
         wan2_status = wan2_element.get_attribute("link")
         wan_status["WAN2"] = wan2_status.upper() if wan2_status else "UNKNOWN"
-        wan_status["WAN2_IP"] = _get_wan_ip(driver, "wan2")
+        wan2_ip, wan2_mask, wan2_latency = _get_wan_details(driver, "wan2")
+        wan_status["WAN2_IP"] = wan2_ip
+        wan_status["WAN2_MASK"] = wan2_mask
+        wan_status["WAN2_LATENCY"] = wan2_latency
     except Exception:
         wan_status["WAN2"] = "NOT FOUND"
         wan_status["WAN2_IP"] = ""
+        wan_status["WAN2_MASK"] = ""
+        wan_status["WAN2_LATENCY"] = ""
         
     wan3_configured = False
     wan3_name = "internal5"
@@ -83,14 +78,20 @@ def _extract_wan_status(driver, host):
         wan3_status = wan3_element.get_attribute("link")
         wan3_clean = wan3_status.strip().upper() if wan3_status else ""
         
+        wan3_ip, wan3_mask, wan3_latency = _get_wan_details(driver, wan3_name)
+        
         if wan3_clean == "UP":
             print(f"[{host}] Found port5/internal5 physically UP.")
             wan_status["WAN3"] = "UP"
-            wan_status["WAN3_IP"] = _get_wan_ip(driver, wan3_name)
+            wan_status["WAN3_IP"] = wan3_ip
+            wan_status["WAN3_MASK"] = wan3_mask
+            wan_status["WAN3_LATENCY"] = wan3_latency
         elif wan3_configured:
             print(f"[{host}] Found port5/internal5 DOWN but it is configured in the table.")
             wan_status["WAN3"] = "DOWN"
-            wan_status["WAN3_IP"] = _get_wan_ip(driver, wan3_name)
+            wan_status["WAN3_IP"] = wan3_ip
+            wan_status["WAN3_MASK"] = wan3_mask
+            wan_status["WAN3_LATENCY"] = wan3_latency
         else:
             print(f"[{host}] port5/internal5 is DOWN and not explicitly configured in the table. Ignoring.")
             
