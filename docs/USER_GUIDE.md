@@ -69,8 +69,8 @@ Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Micro
 ### Available Template Variables:
 - `{{ res.host }}`: The equipment name
 - `{{ res.rule_name }}`: The name of the rule that was matched (e.g., "Generic FortiGate Rule")
-- `{{ res.wan_status.WAN1 }}` / `{{ res.wan_status.WAN2 }}`: Link status of the interfaces
-- `{{ res.wan_status.WAN3 }}`: Link status of port5 (FortiGate specific, dynamically collected only if UP)
+- `{{ res.wan_status.WAN1 }}` / `{{ res.wan_status.WAN2 }}`: Link status of the primary interfaces
+- `{{ res.wan_status.WAN3 }}`: Link status of port5/internal5 (FortiGate specific, collected automatically if configured in the device's interface table)
 - `{{ res.screenshot }}`: The injected screenshot
 
 You can even use conditional logic directly in Word to show specific text depending on the equipment type. 
