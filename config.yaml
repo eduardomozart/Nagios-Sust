@@ -19,5 +19,5 @@ rules:
 
 exporters:
   - type: "docx"
+    language: ["pt-BR", "en"] # Will generate one report per language
     output_file: "Evidence_Report.docx"
-    template_file: "template.docx"
