@@ -115,8 +115,7 @@ def export(results, config):
                 "warning": 0,
                 "critical": 0,
                 "offline": 0
-            },
-            "hosts": []
+            }
         }
         
         # Prepare context for the template
@@ -134,26 +133,24 @@ def export(results, config):
             # Grab all valid pings for this host from the standardized array
             pings = res.get("latencies", [])
             
-            host_obj = {"name": host, "latency": "", "status": "OFFLINE"}
+            res_context["worst_latency"] = ""
+            res_context["status"] = "OFFLINE"
             
             if pings:
                 worst_ping = max(pings) # Evaluate health based on their worst active link
-                host_obj["latency"] = worst_ping
+                res_context["worst_latency"] = worst_ping
                 
                 if worst_ping <= 50:
-                    host_obj["status"] = "OK"
+                    res_context["status"] = "OK"
                     summary["counts"]["ok"] += 1
                 elif worst_ping <= 150:
-                    host_obj["status"] = "WARNING"
+                    res_context["status"] = "WARNING"
                     summary["counts"]["warning"] += 1
                 else:
-                    host_obj["status"] = "CRITICAL"
+                    res_context["status"] = "CRITICAL"
                     summary["counts"]["critical"] += 1
             else:
                 summary["counts"]["offline"] += 1
-                
-            if not any(h["name"] == host for h in summary["hosts"]):
-                summary["hosts"].append(host_obj)
             
             screenshot_path = res.get("screenshot_path")
             if screenshot_path and os.path.exists(screenshot_path):
