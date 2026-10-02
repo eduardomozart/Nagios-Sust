@@ -8,6 +8,60 @@ def get_base_dir():
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+def _diagnose_template_error(template_path):
+    """Extracts and prints the tag hierarchy from the Word document to help debug template syntax errors."""
+    try:
+        import zipfile, re
+        with zipfile.ZipFile(template_path) as z:
+            xml = z.read('word/document.xml').decode('utf-8')
+            text = re.sub(r'<[^>]+>', '', xml)
+            tags = re.findall(r'\{[%\{].*?[%\}]\}', text)
+            if not tags: return
+            
+            print("\n    --- Template Tags Found (In Order) ---")
+            for i, tag in enumerate(tags):
+                print(f"    Line {i+1}: {tag}")
+            print("    --------------------------------------")
+            
+            # Validate tag pairs
+            stack = []
+            for i, tag in enumerate(tags):
+                if not tag.startswith('{%'): continue
+                
+                content = tag.replace('{%', '').replace('%}', '').strip()
+                parts = content.split()
+                if not parts: continue
+                
+                cmd = parts[0]
+                if cmd == 'p' and len(parts) > 1:
+                    cmd = 'p ' + parts[1]
+                    
+                if cmd in ('if', 'for', 'p if', 'p for'):
+                    stack.append((i+1, cmd, tag))
+                elif cmd in ('endif', 'endfor', 'p endif', 'p endfor', 'else', 'p else'):
+                    if cmd in ('else', 'p else'):
+                        if not stack or not stack[-1][1].endswith('if'):
+                            print(f"    [Diagnosis] Syntax Error on Line {i+1}: Found '{tag}' without an opening 'if'.")
+                            return
+                        continue
+                    
+                    expected_opener = cmd.replace('end', '')
+                    if not stack:
+                        print(f"    [Diagnosis] Syntax Error on Line {i+1}: Found '{tag}' but there are no open blocks.")
+                        return
+                    
+                    last_open = stack.pop()
+                    if last_open[1] != expected_opener:
+                        print(f"    [Diagnosis] Syntax Error on Line {i+1}: Found '{tag}' but expected closing for '{last_open[2]}' from Line {last_open[0]}.")
+                        return
+                        
+            if stack:
+                unclosed = stack[-1]
+                print(f"    [Diagnosis] Syntax Error: Reached end of document but '{unclosed[2]}' from Line {unclosed[0]} was never closed.")
+                
+    except Exception:
+        pass
+
 def export(results, config):
     base_output_file = config.get("output_file", "Evidence_Report.docx")
     languages = config.get("language", ["en"])
@@ -63,59 +117,7 @@ def export(results, config):
             print(f"\n[!] Error rendering template '{template_file}' (Language: {lang})")
             print(f"    Details: {e}")
             
-            # Extract and print tag hierarchy to help debug
-            try:
-                import zipfile, re
-                with zipfile.ZipFile(template_path) as z:
-                    xml = z.read('word/document.xml').decode('utf-8')
-                    text = re.sub(r'<[^>]+>', '', xml)
-                    tags = re.findall(r'\{[%\{].*?[%\}]\}', text)
-                    if tags:
-                        print("\n    --- Template Tags Found (In Order) ---")
-                        for i, tag in enumerate(tags):
-                            print(f"    Line {i+1}: {tag}")
-                        print("    --------------------------------------")
-                        
-                        # Validate tag pairs
-                        stack = []
-                        for i, tag in enumerate(tags):
-                            if not tag.startswith('{%'): continue
-                            
-                            content = tag.replace('{%', '').replace('%}', '').strip()
-                            parts = content.split()
-                            if not parts: continue
-                            
-                            cmd = parts[0]
-                            if cmd == 'p' and len(parts) > 1:
-                                cmd = 'p ' + parts[1]
-                                
-                            if cmd in ('if', 'for', 'p if', 'p for'):
-                                stack.append((i+1, cmd, tag))
-                            elif cmd in ('endif', 'endfor', 'p endif', 'p endfor', 'else', 'p else'):
-                                if cmd in ('else', 'p else'):
-                                    if not stack or not stack[-1][1].endswith('if'):
-                                        print(f"    [Diagnosis] Syntax Error on Line {i+1}: Found '{tag}' without an opening 'if'.")
-                                        break
-                                    continue
-                                
-                                expected_opener = cmd.replace('end', '')
-                                if not stack:
-                                    print(f"    [Diagnosis] Syntax Error on Line {i+1}: Found '{tag}' but there are no open blocks.")
-                                    break
-                                
-                                last_open = stack.pop()
-                                if last_open[1] != expected_opener:
-                                    print(f"    [Diagnosis] Syntax Error on Line {i+1}: Found '{tag}' but expected closing for '{last_open[2]}' from Line {last_open[0]}.")
-                                    break
-                        else:
-                            if stack:
-                                unclosed = stack[-1]
-                                print(f"    [Diagnosis] Syntax Error: Reached end of document but '{unclosed[2]}' from Line {unclosed[0]} was never closed.")
-                            else:
-                                print("    Tip: Template syntax looks balanced, but there might be an invisible error.")
-                                
-            except Exception as debug_e:
-                pass
+            _diagnose_template_error(template_path)
                 
             print(f"\n    Skipping export for {lang} due to template error.\n")
             continue
