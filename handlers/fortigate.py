@@ -72,6 +72,9 @@ def handle(host, alert_info, options):
 
     driver_options = webdriver.ChromeOptions()
     driver_options.add_argument('--ignore-certificate-errors')
+    # Suppress console errors from Chrome to keep the terminal clean
+    driver_options.add_argument('--log-level=3')
+    driver_options.add_experimental_option('excludeSwitches', ['enable-logging'])
     # driver_options.add_argument('--headless') # Uncomment to run headless without opening a window
     
     # Using Chrome. Ensure you have a compatible chromedriver installed and in PATH.
@@ -90,6 +93,13 @@ def handle(host, alert_info, options):
         
         # 1. Perform Login
         while True:
+            # If the driver was closed due to an auth failure retry, reopen it
+            try:
+                driver.current_url
+            except Exception:
+                driver = webdriver.Chrome(options=driver_options)
+                driver.get(url)
+
             print(f"[{host}] Waiting for login screen...")
             user_field = WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.ID, "username")) 
@@ -123,6 +133,9 @@ def handle(host, alert_info, options):
                     if err_msg.is_displayed():
                         print(f"[{host}] Authentication failure detected.")
                         if "credential_provider" in options:
+                            print(f"[{host}] Closing browser to prevent interference...")
+                            driver.quit() # Close browser before prompting
+                            
                             print(f"[{host}] Requesting new credentials...")
                             username, password = options["credential_provider"](force_prompt=True)
                             # Update options so subsequent retries use the new credentials
