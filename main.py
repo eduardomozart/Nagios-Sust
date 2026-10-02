@@ -119,11 +119,11 @@ def main():
     print(f"Checking for report file: {pdf_file_name}...")
     pdf_path = get_pdf_file_path(pdf_default_path)
     
-    print(f"Reading PDF: {pdf_path}")
+    print(f"Parsing PDF: {pdf_path}")
     try:
         alerts = parse_nagios_pdf(pdf_path)
     except Exception as e:
-        print(f"Error reading PDF: {e}")
+        print(f"Error parsing PDF: {e}")
         sys.exit(1)
 
     print(f"Found {len(alerts)} unique hosts in the PDF.")
