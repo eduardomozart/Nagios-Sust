@@ -133,12 +133,12 @@ def export(results, config):
             # Grab all valid pings for this host from the standardized array
             pings = res.get("latencies", [])
             
-            res_context["worst_latency"] = ""
+            res_context["latency"] = ""
             res_context["status"] = "OFFLINE"
             
             if pings:
                 worst_ping = max(pings) # Evaluate health based on their worst active link
-                res_context["worst_latency"] = worst_ping
+                res_context["latency"] = worst_ping
                 
                 if worst_ping <= 50:
                     res_context["status"] = "OK"
