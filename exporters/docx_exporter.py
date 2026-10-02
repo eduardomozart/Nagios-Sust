@@ -32,7 +32,6 @@ def _diagnose_template_error(template_path):
                 if len(p_tags) > 1 and any(t.startswith('{%p') for t in p_tags):
                     print(f"    [Diagnosis] CRITICAL: Found a paragraph containing multiple tags including a {{%p tag!")
                     print(f"                Word Paragraph {p_idx+1} contains: {', '.join(p_tags)}")
-                    print(f"                The engine will delete this entire paragraph, destroying the other tags inside it.")
                     conflict_found = True
                     break
                     
