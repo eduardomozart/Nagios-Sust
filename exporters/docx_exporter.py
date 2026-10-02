@@ -31,7 +31,9 @@ def export(results, config):
         output_path = os.path.join(base_dir, output_file)
         
         if not os.path.exists(template_path):
-            print(f"Error: Template file '{template_file}' not found at {template_path}")
+            example_name = template_file.replace('.docx', '.example.docx')
+            print(f"Error: Template file '{template_file}' not found.")
+            print(f"Please copy or rename '{example_name}' to '{template_file}'.")
             continue
             
         doc = DocxTemplate(template_path)

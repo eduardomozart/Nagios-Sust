@@ -7,6 +7,13 @@ credentials:
   password: ""
 
 rules:
+  # Example of using regex for host matching
+  # - name: "FortiGate Custom Regex"
+  #   host_filter:
+  #     regex: "^(FGTDEMO|SWDEMO)"
+  #   handler: "fortigate"
+  #   options: {}
+  
   - name: "FortiGate"
     host_filter:
       startswith: "FGT"

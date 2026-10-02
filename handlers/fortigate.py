@@ -105,7 +105,7 @@ def handle(host, alert_info, options):
         result["screenshot_path"] = screenshot_path
         print(f"[{host}] Screenshot saved at {screenshot_path}")
 
-        # 4. Extract WAN1 and WAN2 status based on the provided HTML
+        # 4. Extract WAN1, WAN2 and conditionally WAN3 status
         try:
             wan1_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan1']")
             wan1_status = wan1_element.get_attribute("link")
@@ -119,8 +119,17 @@ def handle(host, alert_info, options):
             result["wan_status"]["WAN2"] = wan2_status.upper() if wan2_status else "UNKNOWN"
         except Exception:
             result["wan_status"]["WAN2"] = "NOT FOUND"
+            
+        try:
+            wan3_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='port5']")
+            wan3_status = wan3_element.get_attribute("link")
+            if wan3_status and wan3_status.upper() == "UP":
+                result["wan_status"]["WAN3"] = "UP"
+        except Exception:
+            pass # Ignore if port5 doesn't exist or isn't strictly UP
 
-        print(f"[{host}] Collected status: WAN1={result['wan_status']['WAN1']}, WAN2={result['wan_status']['WAN2']}")
+        wan_str = ", ".join([f"{k}={v}" for k, v in result["wan_status"].items()])
+        print(f"[{host}] Collected status: {wan_str}")
 
     except Exception as e:
         print(f"[{host}] Error during automation: {e}")

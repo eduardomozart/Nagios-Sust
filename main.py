@@ -11,6 +11,7 @@ print("========================================\n")
 import yaml
 import importlib
 import getpass
+import re
 from utils.pdf_parser import parse_nagios_pdf
 from utils.dialog import open_file_dialog
 
@@ -55,10 +56,22 @@ def load_config(config_file="config.yaml"):
 def match_rule(host, rules):
     for rule in rules:
         host_filter = rule.get("host_filter", {})
+        
+        # Check startswith
         if "startswith" in host_filter:
             prefix = str(host_filter["startswith"])
             if host.startswith(prefix):
                 return rule
+                
+        # Check regex
+        if "regex" in host_filter:
+            pattern = str(host_filter["regex"])
+            try:
+                if re.search(pattern, host):
+                    return rule
+            except re.error as e:
+                print(f"Invalid regex '{pattern}' in rule '{rule.get('name')}': {e}")
+                
     return None
 
 def get_pdf_file_path(default_path):
