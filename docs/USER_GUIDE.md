@@ -23,7 +23,11 @@ credentials:
 ### Writing Rules
 Rules define what equipment the script should automate.
 **Multiple Rules**: The script evaluates rules from top to bottom. If a host matches *multiple* rules, ALL matching rules will be executed in order! This means you can run a `fortigate` handler to grab WAN status AND a `generic_ping` handler for the exact same host, and both will appear as separate entries in your report.
+
 You can match hosts either using simple `startswith` prefixes or powerful `regex` expressions.
+
+**Advanced Regex (Negative Lookahead)**:
+If you want to match all hosts starting with `FGT` *except* a specific one (e.g. `FGTDEMO01`), you can use a negative lookahead like this: `^FGT(?!DEMO01$)`.
 
 ```yaml
 rules:

@@ -13,6 +13,13 @@ rules:
   #     regex: "^(FGTDEMO|SWDEMO)"
   #   handler: "fortigate"
   #   options: {}
+
+  # Example of using regex to EXCLUDE a specific host (Negative Lookahead)
+  # - name: "All FortiGates EXCEPT FGTDEMO01"
+  #   host_filter:
+  #     regex: "^FGT(?!DEMO01$)"
+  #   handler: "fortigate"
+  #   options: {}
   
   - name: "FortiGate"
     host_filter:
