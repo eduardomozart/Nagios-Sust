@@ -121,18 +121,22 @@ def handle(host, alert_info, options):
             result["wan_status"]["WAN2"] = "NOT FOUND"
             
         try:
-            wan3_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='port5' i]")
+            try:
+                wan3_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='internal5' i]")
+            except:
+                wan3_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='port5' i]")
+                
             wan3_status = wan3_element.get_attribute("link")
             
             if wan3_status:
                 wan3_clean = wan3_status.strip().upper()
-                print(f"[{host}] Found port5 with link status: '{wan3_clean}'")
+                print(f"[{host}] Found port5/internal5 with link status: '{wan3_clean}'")
                 if wan3_clean == "UP":
                     result["wan_status"]["WAN3"] = "UP"
             else:
-                print(f"[{host}] Found port5 but 'link' attribute is empty.")
+                print(f"[{host}] Found port5/internal5 but 'link' attribute is empty.")
         except Exception as e:
-            print(f"[{host}] Could not find port5 for WAN3 (or it is not present).")
+            print(f"[{host}] Could not find port5 or internal5 for WAN3 (or it is not present).")
 
         wan_str = ", ".join([f"{k}={v}" for k, v in result["wan_status"].items()])
         print(f"[{host}] Collected status: {wan_str}")
