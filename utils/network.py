@@ -20,8 +20,8 @@ def ping_host(ip_address):
         
         # Parse latency
         if platform.system().lower() == 'windows':
-            # Match "time=15ms" or "time<1ms"
-            match = re.search(r'time[=<]([0-9]+)ms', output, re.IGNORECASE)
+            # Match "time=15ms", "time<1ms", "tempo=15ms" or "tempo<1ms"
+            match = re.search(r'(?:time|tempo)[=<]([0-9]+)ms', output, re.IGNORECASE)
             if match:
                 return match.group(1)
         else:
