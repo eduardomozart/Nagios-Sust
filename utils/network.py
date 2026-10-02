@@ -7,7 +7,7 @@ def ping_host(ip_address):
     Pings an IP address and returns the latency in milliseconds as a string.
     Returns "" if unreachable or timeout.
     """
-    if not ip_address:
+    if not ip_address or ip_address == "0.0.0.0":
         return ""
         
     try:

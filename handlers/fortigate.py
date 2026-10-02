@@ -30,10 +30,6 @@ def _get_wan_details(driver, interface_name):
                 if match:
                     ip, mask = ip_netmask_to_cidr(match.group(1))
                     
-                    # If it's a 0.0.0.0 IP (failed DHCP), do not ping and return empty latency for TIMEOUT status
-                    if ip == "0.0.0.0":
-                        return ip, mask, ""
-                        
                     latency = ping_host(ip)
                     return ip, mask, latency
             except:
