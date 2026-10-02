@@ -62,5 +62,22 @@ def export(results, config):
         except Exception as e:
             print(f"\n[!] Error rendering template '{template_file}' (Language: {lang})")
             print(f"    Details: {e}")
-            print(f"    Skipping export for {lang} due to template error.\n")
+            
+            # Extract and print tag hierarchy to help debug
+            try:
+                import zipfile, re
+                with zipfile.ZipFile(template_path) as z:
+                    xml = z.read('word/document.xml').decode('utf-8')
+                    text = re.sub(r'<[^>]+>', '', xml)
+                    tags = re.findall(r'\{[%\{].*?[%\}]\}', text)
+                    if tags:
+                        print("\n    --- Template Tags Found (In Order) ---")
+                        for i, tag in enumerate(tags):
+                            print(f"    Line {i+1}: {tag}")
+                        print("    --------------------------------------")
+                        print("    Tip: Check if every {% if %} has a matching {% endif %}.")
+            except Exception as debug_e:
+                pass
+                
+            print(f"\n    Skipping export for {lang} due to template error.\n")
             continue
