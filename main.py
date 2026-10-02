@@ -5,9 +5,8 @@ VERSION = "DEV_BUILD"
 
 # Print header immediately before heavy imports
 print("========================================")
-print(f" Nagios Sustenance Automation v{VERSION} ")
+print(f" Nagios-Sust v{VERSION} ")
 print("========================================\n")
-print("Initializing modules... (This may take a few seconds)\n")
 
 import yaml
 import importlib
