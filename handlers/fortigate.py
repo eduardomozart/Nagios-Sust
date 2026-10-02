@@ -6,6 +6,53 @@ from datetime import datetime
 import time
 import os
 
+def _extract_wan_status(driver, host):
+    wan_status = {}
+    try:
+        wan1_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan1']")
+        wan1_status = wan1_element.get_attribute("link")
+        wan_status["WAN1"] = wan1_status.upper() if wan1_status else "UNKNOWN"
+    except Exception:
+        wan_status["WAN1"] = "NOT FOUND"
+        
+    try:
+        wan2_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan2']")
+        wan2_status = wan2_element.get_attribute("link")
+        wan_status["WAN2"] = wan2_status.upper() if wan2_status else "UNKNOWN"
+    except Exception:
+        wan_status["WAN2"] = "NOT FOUND"
+        
+    wan3_configured = False
+    try:
+        elements = driver.find_elements(By.XPATH, "//span[contains(text(), '(internal5)') or contains(text(), '(port5)')]")
+        if elements:
+            wan3_configured = True
+    except Exception:
+        pass
+
+    try:
+        try:
+            wan3_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='internal5' i]")
+        except:
+            wan3_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='port5' i]")
+            
+        wan3_status = wan3_element.get_attribute("link")
+        
+        if wan3_configured:
+            if wan3_status:
+                wan3_clean = wan3_status.strip().upper()
+                print(f"[{host}] Found port5/internal5 with link status: '{wan3_clean}'")
+                wan_status["WAN3"] = wan3_clean
+            else:
+                print(f"[{host}] Found port5/internal5 but 'link' attribute is empty. Setting as DOWN.")
+                wan_status["WAN3"] = "DOWN"
+    except Exception as e:
+        if wan3_configured:
+            print(f"[{host}] Configured port5/internal5 not found in faceplate. Setting as UNKNOWN.")
+            wan_status["WAN3"] = "UNKNOWN"
+            
+    return wan_status
+
 def handle(host, alert_info, options):
     url = options.get("url_template", "https://{host}/ng/interface").format(host=host)
     
@@ -131,49 +178,7 @@ def handle(host, alert_info, options):
         print(f"[{host}] Screenshot saved at {screenshot_path}")
 
         # 4. Extract WAN1, WAN2 and conditionally WAN3 status
-        try:
-            wan1_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan1']")
-            wan1_status = wan1_element.get_attribute("link")
-            result["wan_status"]["WAN1"] = wan1_status.upper() if wan1_status else "UNKNOWN"
-        except Exception:
-            result["wan_status"]["WAN1"] = "NOT FOUND"
-            
-        try:
-            wan2_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='wan2']")
-            wan2_status = wan2_element.get_attribute("link")
-            result["wan_status"]["WAN2"] = wan2_status.upper() if wan2_status else "UNKNOWN"
-        except Exception:
-            result["wan_status"]["WAN2"] = "NOT FOUND"
-            
-        wan3_configured = False
-        try:
-            # Check if internal5 or port5 exists in the interfaces table
-            elements = driver.find_elements(By.XPATH, "//span[contains(text(), '(internal5)') or contains(text(), '(port5)')]")
-            if elements:
-                wan3_configured = True
-        except Exception:
-            pass
-
-        try:
-            try:
-                wan3_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='internal5' i]")
-            except:
-                wan3_element = driver.find_element(By.CSS_SELECTOR, "div[port-id='port5' i]")
-                
-            wan3_status = wan3_element.get_attribute("link")
-            
-            if wan3_configured:
-                if wan3_status:
-                    wan3_clean = wan3_status.strip().upper()
-                    print(f"[{host}] Found port5/internal5 with link status: '{wan3_clean}'")
-                    result["wan_status"]["WAN3"] = wan3_clean
-                else:
-                    print(f"[{host}] Found port5/internal5 but 'link' attribute is empty. Setting as DOWN.")
-                    result["wan_status"]["WAN3"] = "DOWN"
-        except Exception as e:
-            if wan3_configured:
-                print(f"[{host}] Configured port5/internal5 not found in faceplate. Setting as UNKNOWN.")
-                result["wan_status"]["WAN3"] = "UNKNOWN"
+        result["wan_status"] = _extract_wan_status(driver, host)
 
         wan_str = ", ".join([f"{k}={v}" for k, v in result["wan_status"].items()])
         print(f"[{host}] Collected status: {wan_str}")
