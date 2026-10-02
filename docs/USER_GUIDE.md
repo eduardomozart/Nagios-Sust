@@ -22,7 +22,7 @@ credentials:
 
 ### Writing Rules
 Rules define what equipment the script should automate.
-**Order Matters**: The script evaluates rules from top to bottom. The first rule that matches the host will be used.
+**Multiple Rules**: The script evaluates rules from top to bottom. If a host matches *multiple* rules, ALL matching rules will be executed in order! This means you can run a `fortigate` handler to grab WAN status AND a `generic_ping` handler for the exact same host, and both will appear as separate entries in your report.
 You can match hosts either using simple `startswith` prefixes or powerful `regex` expressions.
 
 ```yaml

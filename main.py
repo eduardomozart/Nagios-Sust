@@ -56,7 +56,8 @@ def load_config(config_file="config.yaml"):
         print(f"\nDetailed YAML Error:\n{exc}")
         sys.exit(1)
 
-def match_rule(host, rules):
+def match_rules(host, rules):
+    matched = []
     for rule in rules:
         host_filter = rule.get("host_filter", {})
         
@@ -64,18 +65,20 @@ def match_rule(host, rules):
         if "startswith" in host_filter:
             prefix = str(host_filter["startswith"])
             if host.startswith(prefix):
-                return rule
+                matched.append(rule)
+                continue
                 
         # Check regex
         if "regex" in host_filter:
             pattern = str(host_filter["regex"])
             try:
                 if re.search(pattern, host):
-                    return rule
+                    matched.append(rule)
+                    continue
             except re.error as e:
                 print(f"Invalid regex '{pattern}' in rule '{rule.get('name')}': {e}")
                 
-    return None
+    return matched
 
 def get_pdf_file_path(default_path):
     if os.path.exists(default_path):
@@ -131,9 +134,13 @@ def main():
 
     for alert in alerts:
         host = alert["host"]
-        rule = match_rule(host, config.get("rules", []))
+        matched_rules = match_rules(host, config.get("rules", []))
         
-        if rule:
+        if not matched_rules:
+            print(f"[{host}] No rules matched.")
+            continue
+            
+        for rule in matched_rules:
             handler_name = rule["handler"]
             print(f"\nHost '{host}' matched rule '{rule['name']}'. Executing handler '{handler_name}'...")
             
