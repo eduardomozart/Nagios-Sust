@@ -51,8 +51,6 @@ def _get_wan_details(driver, interface_name):
                     ip, mask = ip_netmask_to_cidr(match.group(1))
                     latency = ping_host(ip)
                     return ip, mask, latency
-                else:
-                    print(f"DEBUG: Found {interface_name} row but IP regex failed. Row text: {row_text}")
             except Exception as row_e:
                 print(f"DEBUG: Row processing exception for {interface_name}: {row_e}")
                 continue
