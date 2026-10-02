@@ -27,6 +27,12 @@ You can match hosts either using simple `startswith` prefixes or powerful `regex
 
 ```yaml
 rules:
+  - name: "Simple Ping Test"
+    host_filter:
+      startswith: "SW" # Matches switches or generic hosts
+    handler: "generic_ping"
+    options: {}
+
   - name: "FortiGate Custom Regex"
     host_filter:
       regex: "^(FGTDEMO|SWDEMO)" # Matches FGTDEMO-01, SWDEMO-CORE, etc.
@@ -66,9 +72,12 @@ When defining paths (like the location of your Nagios report) in Windows, backsl
 You don't need to know Python to change the layout of the final report!
 Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Microsoft Word, rename it to remove the `.example` part, and modify it as you please. You can change fonts, colors, add company logos, or change the table layout. 
 
-### Available Template Variables (FortiGate Handler):
+### Available Template Variables (All Handlers):
 - `{{ res.host }}`: The equipment name
 - `{{ res.rule_name }}`: The name of the rule that was matched (e.g., "Generic FortiGate Rule")
+- `{{ res.latency }}`: The worst ping latency across all valid links in ms (empty if unreachable)
+
+### Available Template Variables (FortiGate Handler):
 - `{{ res.wan_status.WAN1 }}` / `{{ res.wan_status.WAN2 }}`: Link status of the primary interfaces (UP/DOWN)
 - `{{ res.wan_status.WAN1_IP }}` / `{{ res.wan_status.WAN2_IP }}`: The raw IP address of the primary interfaces
 - `{{ res.wan_status.WAN1_MASK }}` / `{{ res.wan_status.WAN2_MASK }}`: The CIDR mask of the primary interfaces
@@ -78,6 +87,9 @@ Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Micro
 - `{{ res.wan_status.WAN3_MASK }}`: The CIDR mask of port5/internal5
 - `{{ res.wan_status.WAN3_LATENCY }}`: The ping latency of port5/internal5 in ms
 - `{{ res.screenshot }}`: The injected screenshot
+
+### Available Template Variables (Generic Ping Handler):
+- No extra variables natively exported (only the global `res.latency` is populated)
 
 You can even use conditional logic directly in Word to show specific text depending on the equipment type or the presence of an error. 
 

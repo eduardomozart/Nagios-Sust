@@ -24,6 +24,12 @@ rules:
       # username: "specific_admin"
       # password: ""
 
+  - name: "Generic Ping Test"
+    host_filter:
+      startswith: "SW" # Match switches or servers
+    handler: "generic_ping"
+    options: {}
+
 exporters:
   - type: "docx"
     language: ["pt-BR", "en"] # Will generate one report per language
