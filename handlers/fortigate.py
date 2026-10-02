@@ -31,11 +31,11 @@ def _get_wan_details(driver, interface_name):
                 
         for el in elements:
             try:
-                # Go up the DOM tree to find the parent table row (tr or div.row)
-                parent = el.find_element(By.XPATH, "./ancestor::tr | ./ancestor::div[contains(@class, 'row')]")
+                # Go up the DOM tree to find the parent table row. Strictly match ' row ' to avoid stopping at 'row-cell' or 'row-inner-cell'.
+                parent = el.find_element(By.XPATH, "./ancestor::tr | ./ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' row ')]")
                 
                 # Extract text from individual cells and join with spaces to prevent textContent from concatenating words, which breaks Regex \b boundaries
-                cells = parent.find_elements(By.XPATH, ".//*[self::td or contains(@class, 'cell')]")
+                cells = parent.find_elements(By.XPATH, ".//*[self::td or contains(concat(' ', normalize-space(@class), ' '), ' row-cell ')]")
                 row_text = " ".join([c.get_attribute("textContent").strip() for c in cells])
                 
                 # If cells extraction failed (e.g., different DOM), fallback to the parent's textContent with relaxed Regex
