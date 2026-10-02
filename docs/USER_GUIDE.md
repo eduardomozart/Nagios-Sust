@@ -8,7 +8,7 @@ For each host found, it checks `config.yaml` to see if there is a matching rule.
 Finally, all this evidence is injected into an MS Word template (`template.docx`).
 
 ## 2. Setting Up Your `config.yaml`
-The `config.yaml` file is the brain of the automation. 
+The `config.yaml` file (packaged as `config.example.yaml` by default - rename it to start using) is the brain of the automation. 
 
 ### Global Credentials
 You can define global credentials so you don't have to type them every time. 
@@ -23,25 +23,31 @@ credentials:
 ### Writing Rules
 Rules define what equipment the script should automate.
 **Order Matters**: The script evaluates rules from top to bottom. The first rule that matches the host will be used.
-For example, if your PDF has a host named `FGTDEMO-FW-01`, and you have a specific rule for `FGTDEMO` and a generic rule for `FGT`, make sure to place the specific rule (`FGTDEMO`) *above* the generic one (`FGT`) in the YAML file!
+You can match hosts either using simple `startswith` prefixes or powerful `regex` expressions.
 
 ```yaml
 rules:
-  - name: "Specific FGTDEMO Rule"
+  - name: "FortiGate Custom Regex"
     host_filter:
-      startswith: "FGTDEMO"
+      regex: "^(FGTDEMO|SWDEMO)" # Matches FGTDEMO-01, SWDEMO-CORE, etc.
     handler: "fortigate"
-    options:
-      url_template: "https://{host}/ng/interface"
-      # You can override the global credentials here:
-      # username: "other_admin"
+    options: {}
 
   - name: "Generic FortiGate Rule"
     host_filter:
-      startswith: "FGT"
+      startswith: "FGT" # Simple prefix match
     handler: "fortigate"
     options:
       url_template: "https://{host}/ng/interface"
+```
+
+### Multi-Language Exports
+You can generate reports in multiple languages simultaneously! The script will look for `template_<language>.docx` files.
+```yaml
+exporters:
+  - type: "docx"
+    language: ["pt-BR", "en"] # Will generate one report per language
+    output_file: "Evidence_Report.docx"
 ```
 
 ## 3. Dealing with File Paths in YAML
@@ -58,6 +64,18 @@ When defining paths (like the location of your Nagios report) in Windows, backsl
 
 ## 4. Customizing the Word Template
 You don't need to know Python to change the layout of the final report!
-Simply open `template.docx` in Microsoft Word and modify it as you please. You can change fonts, colors, add company logos, or change the table layout. 
+Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Microsoft Word, rename it to remove the `.example` part, and modify it as you please. You can change fonts, colors, add company logos, or change the table layout. 
 
-Just make sure you leave the `{{ variable }}` tags intact so the script knows where to inject the screenshots and the collected data.
+### Available Template Variables:
+- `{{ res.host }}`: The equipment name
+- `{{ res.rule_name }}`: The name of the rule that was matched (e.g., "Generic FortiGate Rule")
+- `{{ res.wan_status.WAN1 }}` / `{{ res.wan_status.WAN2 }}`: Link status of the interfaces
+- `{{ res.wan_status.WAN3 }}`: Link status of port5 (FortiGate specific, dynamically collected only if UP)
+- `{{ res.screenshot }}`: The injected screenshot
+
+You can even use conditional logic directly in Word to show specific text depending on the equipment type:
+```text
+{% if res.rule_name == "FortiGate Custom Regex" %}
+Texto específico para esse agrupamento!
+{% endif %}
+```
