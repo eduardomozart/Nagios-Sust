@@ -110,12 +110,13 @@ def export(results, config):
         # Pre-calculate Summary Analytics
         summary = {
             "total": len(results),
-            "ok": 0,
-            "warning": 0,
-            "critical": 0,
-            "no_ping": 0,
-            "warning_hosts": [],
-            "critical_hosts": []
+            "counts": {
+                "ok": 0,
+                "warning": 0,
+                "critical": 0,
+                "offline": 0
+            },
+            "hosts": []
         }
         
         # Prepare context for the template
@@ -132,23 +133,27 @@ def export(results, config):
             
             # Grab all valid pings for this host from the standardized array
             pings = res.get("latencies", [])
-                        
+            
+            host_obj = {"name": host, "latency": "", "status": "OFFLINE"}
+            
             if pings:
                 worst_ping = max(pings) # Evaluate health based on their worst active link
-                host_obj = {"name": host, "latency": worst_ping}
+                host_obj["latency"] = worst_ping
                 
                 if worst_ping <= 50:
-                    summary["ok"] += 1
+                    host_obj["status"] = "OK"
+                    summary["counts"]["ok"] += 1
                 elif worst_ping <= 150:
-                    summary["warning"] += 1
-                    if not any(h["name"] == host for h in summary["warning_hosts"]):
-                        summary["warning_hosts"].append(host_obj)
+                    host_obj["status"] = "WARNING"
+                    summary["counts"]["warning"] += 1
                 else:
-                    summary["critical"] += 1
-                    if not any(h["name"] == host for h in summary["critical_hosts"]):
-                        summary["critical_hosts"].append(host_obj)
+                    host_obj["status"] = "CRITICAL"
+                    summary["counts"]["critical"] += 1
             else:
-                summary["no_ping"] += 1
+                summary["counts"]["offline"] += 1
+                
+            if not any(h["name"] == host for h in summary["hosts"]):
+                summary["hosts"].append(host_obj)
             
             screenshot_path = res.get("screenshot_path")
             if screenshot_path and os.path.exists(screenshot_path):
