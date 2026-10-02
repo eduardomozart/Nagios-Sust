@@ -73,9 +73,11 @@ Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Micro
 - `{{ res.wan_status.WAN3 }}`: Link status of port5 (FortiGate specific, dynamically collected only if UP)
 - `{{ res.screenshot }}`: The injected screenshot
 
-You can even use conditional logic directly in Word to show specific text depending on the equipment type:
+You can even use conditional logic directly in Word to show specific text depending on the equipment type. 
+**Pro-Tip**: Use `{%p if ... %}` instead of `{% if ... %}` so that the template engine completely removes the empty line/paragraph if the condition is false!
+
 ```text
-{% if res.rule_name == "FortiGate Custom Regex" %}
+{%p if res.rule_name == "FortiGate Custom Regex" %}
 Texto específico para esse agrupamento!
-{% endif %}
+{%p endif %}
 ```
