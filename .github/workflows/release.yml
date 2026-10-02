@@ -43,8 +43,8 @@ jobs:
         # Copy configuration files inside the executable's directory
         copy config.yaml release_package\Nagios-Sust-x64\config.example.yaml
         copy template.docx release_package\Nagios-Sust-x64\
-        # Create final zip containing the folder
-        Compress-Archive -Path release_package\Nagios-Sust-x64 -DestinationPath Nagios-Sust-win-x64.zip
+        # Create final zip containing the folder contents directly
+        Compress-Archive -Path release_package\Nagios-Sust-x64\* -DestinationPath Nagios-Sust-win-x64.zip
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
