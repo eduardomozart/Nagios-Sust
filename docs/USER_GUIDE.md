@@ -74,8 +74,8 @@ Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Micro
 - `{{ res.screenshot }}`: The injected screenshot
 
 You can even use conditional logic directly in Word to show specific text depending on the equipment type. 
-**Pro-Tip**: To completely prevent blank/empty lines when a condition is false, you **must** place the `{%p if ... %}`, your text, and `{%p endif %}` on the **EXACT SAME LINE** (mesmo parágrafo) no Word!
+**Pro-Tip**: To completely prevent blank/empty lines when a condition is false, you **must** place the `{%p if ... %}`, your text, and `{%p endif %}` on the **EXACT SAME LINE** (same paragraph) in Word!
 
 ```text
-{%p if res.rule_name == "FortiGate Custom Regex" %}Texto específico para esse agrupamento!{%p endif %}
+{%p if res.rule_name == "FortiGate Custom Regex" %}Specific text for this group!{%p endif %}
 ```
