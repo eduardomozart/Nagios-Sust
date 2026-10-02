@@ -235,23 +235,24 @@ def handle(host, alert_info, options):
         # Short pause to ensure rendering of icons/states
         time.sleep(3)
         
-        # 3. Take Screenshot
-        exec_timestamp = options.get("execution_timestamp", datetime.now().strftime("%Y%m%d_%H%M%S"))
-        # Use the current filename without extension (e.g. 'fortigate')
-        handler_name = os.path.splitext(os.path.basename(__file__))[0]
-        
-        # Create nested screenshots directory: screenshots/<timestamp>/<handler_name>
-        base_dir = options.get("base_dir", os.getcwd())
-        screenshots_dir = os.path.join(base_dir, "screenshots", exec_timestamp, handler_name)
-        os.makedirs(screenshots_dir, exist_ok=True)
-        
-        capture_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        screenshot_filename = f"screenshot_{host}_{capture_timestamp}.png"
-        screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
-        
-        driver.save_screenshot(screenshot_path)
-        result["screenshot_path"] = screenshot_path
-        print(f"[{host}] Screenshot saved at {screenshot_path}")
+        # 3. Take Screenshot (if enabled)
+        if options.get("capture_screenshot", True):
+            exec_timestamp = options.get("execution_timestamp", datetime.now().strftime("%Y%m%d_%H%M%S"))
+            # Use the current filename without extension (e.g. 'fortigate')
+            handler_name = os.path.splitext(os.path.basename(__file__))[0]
+            
+            # Create nested screenshots directory: screenshots/<timestamp>/<handler_name>
+            base_dir = options.get("base_dir", os.getcwd())
+            screenshots_dir = os.path.join(base_dir, "screenshots", exec_timestamp, handler_name)
+            os.makedirs(screenshots_dir, exist_ok=True)
+            
+            capture_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            screenshot_filename = f"screenshot_{host}_{capture_timestamp}.png"
+            screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
+            
+            driver.save_screenshot(screenshot_path)
+            result["screenshot_path"] = screenshot_path
+            print(f"[{host}] Screenshot saved at {screenshot_path}")
 
         # 4. Extract WAN1, WAN2 and conditionally WAN3 status
         result["wan_status"] = _extract_wan_status(driver, host)

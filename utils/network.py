@@ -29,6 +29,29 @@ def ping_host(ip_address):
         
     return ""
 
+def ping_with_output(ip_address):
+    """
+    Pings an IP address and returns a tuple (latency_str, raw_output_str).
+    """
+    if not ip_address or ip_address == "0.0.0.0":
+        return "", "Invalid IP address or host unreachable."
+        
+    try:
+        param = '-n' if platform.system().lower() == 'windows' else '-c'
+        cmd = ['ping', param, '4', ip_address] if platform.system().lower() == 'windows' else ['ping', param, '4', ip_address]
+        
+        output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, universal_newlines=True)
+        
+        match = re.search(r'[=<]\s*([0-9]+(?:\.[0-9]+)?)\s*ms', output, re.IGNORECASE)
+        latency = str(int(float(match.group(1)))) if match else ""
+        
+        return latency, output
+                
+    except subprocess.CalledProcessError as e:
+        return "", e.output
+    except Exception as e:
+        return "", str(e)
+
 def ip_netmask_to_cidr(ip_netmask):
     """
     Splits an IP/Netmask string and converts decimal netmask to CIDR notation.
