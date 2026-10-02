@@ -241,7 +241,8 @@ def handle(host, alert_info, options):
         handler_name = os.path.splitext(os.path.basename(__file__))[0]
         
         # Create nested screenshots directory: screenshots/<timestamp>/<handler_name>
-        screenshots_dir = os.path.join(os.getcwd(), "screenshots", exec_timestamp, handler_name)
+        base_dir = options.get("base_dir", os.getcwd())
+        screenshots_dir = os.path.join(base_dir, "screenshots", exec_timestamp, handler_name)
         os.makedirs(screenshots_dir, exist_ok=True)
         
         capture_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
