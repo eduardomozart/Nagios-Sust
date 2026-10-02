@@ -87,6 +87,15 @@ def get_pdf_file_path(default_path):
 
 def main():
     config = load_config()
+    
+    # Pre-load global credentials from config if specified
+    global _cached_username, _cached_password
+    global_creds = config.get("credentials", {})
+    if global_creds.get("username"):
+        _cached_username = global_creds["username"]
+    if global_creds.get("password"):
+        _cached_password = str(global_creds["password"]) # Cast to string in case of numeric passwords
+        
     pdf_file_name = config.get("nagios_report", "report.pdf")
     
     base_dir = get_base_dir()

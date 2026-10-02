@@ -1,6 +1,11 @@
 # Note: If providing a full Windows path, use single quotes (e.g., 'C:\path\to\file.pdf') or forward slashes (C:/path/to/file.pdf)
 nagios_report: "report.pdf"
 
+credentials:
+  # Global credentials used by all handlers. Leave empty to prompt in terminal.
+  username: ""
+  password: ""
+
 rules:
   - name: "FortiGate Sustenance"
     host_filter:
@@ -8,8 +13,9 @@ rules:
     handler: "fortigate"
     options:
       url_template: "https://{host}/ng/interface"
-      # username: "admin"
-      # password: "" # Leave empty to prompt in terminal
+      # You can override credentials here for this specific rule if needed
+      # username: "specific_admin"
+      # password: ""
 
 exporters:
   - type: "docx"
