@@ -73,9 +73,6 @@ def _diagnose_template_error(template_path):
             if stack:
                 unclosed = stack[-1]
                 print(f"    [Diagnosis] Syntax Error: Reached end of document but '{unclosed[2]}' from Tag {unclosed[0]} was never closed.")
-            else:
-                print("    [Diagnosis] The tags are logically balanced! However, the template engine is still crashing.")
-                print("                Check your Word document for invisible formatting issues or typos.")
                 
     except Exception:
         pass
