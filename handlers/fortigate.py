@@ -110,7 +110,7 @@ def _extract_wan_status(driver, host, options):
 
     # 2. If ping_gateway is enabled, go to static routing and find gateways.
     gateways = {}
-    if ping_gateway and ping_intfs:
+    if ping_gateway:
         print(f"[{host}] ping_gateway is enabled. Fetching static routes to find gateways...")
         try:
             driver.get(f"https://{host}/ng/routing/static/")
@@ -119,7 +119,7 @@ def _extract_wan_status(driver, host, options):
             rows = driver.find_elements(By.XPATH, "//div[contains(concat(' ', normalize-space(@class), ' '), ' row ')]")
             
             # Group routes by primary interface lower name
-            routes_by_intf = {p.split('|')[0].strip().lower(): [] for p in ping_intfs}
+            routes_by_intf = {p.split('|')[0].strip().lower(): [] for p in diagnose_intfs}
             
             for row in rows:
                 try:
@@ -127,7 +127,7 @@ def _extract_wan_status(driver, host, options):
                     gw = row.find_element(By.CSS_SELECTOR, "div[column-id='gateway']").text.strip()
                     intf_text = row.find_element(By.CSS_SELECTOR, "div[column-id='$intf']").text.strip()
                     
-                    for p_conf in ping_intfs:
+                    for p_conf in diagnose_intfs:
                         p_aliases = [a.strip() for a in p_conf.split('|')]
                         p_primary = p_aliases[0].lower()
                         for alias in p_aliases:
@@ -195,6 +195,8 @@ def _extract_wan_status(driver, host, options):
         mask = data["mask"]
         latency = ""
         
+        gw_found = gateways.get(intf_lower, "")
+        
         # Check if this interface was requested for pinging
         wants_ping = False
         for p_conf in ping_intfs:
@@ -206,7 +208,7 @@ def _extract_wan_status(driver, host, options):
         if status_clean == "UP" and wants_ping:
             target_ip = None
             if ping_gateway:
-                target_ip = gateways.get(intf_lower)
+                target_ip = gw_found
                 if target_ip:
                     print(f"[{host}] Pinging {primary_intf} gateway -> {target_ip}")
                 else:
@@ -222,6 +224,7 @@ def _extract_wan_status(driver, host, options):
         wan_status[key] = status_clean
         wan_status[f"{key}_IP"] = ip
         wan_status[f"{key}_MASK"] = mask
+        wan_status[f"{key}_GW"] = gw_found
         wan_status[f"{key}_LATENCY"] = latency
 
     return wan_status
