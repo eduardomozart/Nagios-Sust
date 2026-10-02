@@ -135,16 +135,18 @@ def export(results, config):
                         
             if pings:
                 worst_ping = max(pings) # Evaluate health based on their worst active link
+                host_obj = {"name": host, "latency": worst_ping}
+                
                 if worst_ping <= 50:
                     summary["ok"] += 1
                 elif worst_ping <= 150:
                     summary["warning"] += 1
-                    if host not in summary["warning_hosts"]:
-                        summary["warning_hosts"].append(host)
+                    if not any(h["name"] == host for h in summary["warning_hosts"]):
+                        summary["warning_hosts"].append(host_obj)
                 else:
                     summary["critical"] += 1
-                    if host not in summary["critical_hosts"]:
-                        summary["critical_hosts"].append(host)
+                    if not any(h["name"] == host for h in summary["critical_hosts"]):
+                        summary["critical_hosts"].append(host_obj)
             else:
                 summary["no_ping"] += 1
             
