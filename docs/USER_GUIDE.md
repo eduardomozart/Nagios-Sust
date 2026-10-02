@@ -66,11 +66,13 @@ When defining paths (like the location of your Nagios report) in Windows, backsl
 You don't need to know Python to change the layout of the final report!
 Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Microsoft Word, rename it to remove the `.example` part, and modify it as you please. You can change fonts, colors, add company logos, or change the table layout. 
 
-### Available Template Variables:
+### Available Template Variables (FortiGate Handler):
 - `{{ res.host }}`: The equipment name
 - `{{ res.rule_name }}`: The name of the rule that was matched (e.g., "Generic FortiGate Rule")
-- `{{ res.wan_status.WAN1 }}` / `{{ res.wan_status.WAN2 }}`: Link status of the primary interfaces
+- `{{ res.wan_status.WAN1 }}` / `{{ res.wan_status.WAN2 }}`: Link status of the primary interfaces (UP/DOWN)
+- `{{ res.wan_status.WAN1_IP }}` / `{{ res.wan_status.WAN2_IP }}`: IP address and CIDR mask of the primary interfaces
 - `{{ res.wan_status.WAN3 }}`: Link status of port5/internal5 (FortiGate specific, collected automatically if configured in the device's interface table)
+- `{{ res.wan_status.WAN3_IP }}`: IP address and CIDR mask of port5/internal5
 - `{{ res.screenshot }}`: The injected screenshot
 
 You can even use conditional logic directly in Word to show specific text depending on the equipment type or the presence of an error. 
