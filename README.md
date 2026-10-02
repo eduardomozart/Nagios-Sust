@@ -1,4 +1,4 @@
-# Nagios-Sust
+# Nagios Sustenance Automation (Nagios-Sust)
 
 A modular, automated tool to collect evidence from network equipment based on Nagios Service Status PDF reports.
 
@@ -8,7 +8,7 @@ A modular, automated tool to collect evidence from network equipment based on Na
 - **Selenium Automation**: Automatically logs into network appliances, checks interface status, and takes evidence screenshots.
 - **Word Template Engine**: Generates evidence reports using an easily customizable `template.docx` file. You can style the output directly in Microsoft Word.
 - **Smart Credential Management**: Prompts for your password only once per execution.
-- **Standalone Executable**: Distributed as a Windows `.exe` — no Python installation required.
+- **Standalone Executable**: Distributed as an unpacked `.zip` for instant startup on Windows — no Python installation required.
 
 ## Getting Started (Python Source)
 
@@ -36,11 +36,12 @@ A modular, automated tool to collect evidence from network equipment based on Na
    ```
 4. The generated report will be saved as `Evidence_Report.docx` (or whatever name is specified in your config).
 
-## Using the Compiled Executable
-If you downloaded the `.zip` release artifact:
+## Using the Compiled Release
+If you downloaded the `.zip` release artifact from GitHub Actions:
 1. Extract the folder.
-2. Make sure `config.yaml` and `template.docx` are in the same folder as the `.exe`.
+2. Open the extracted folder (which contains the DLLs, `config.yaml`, and `template.docx`).
 3. Double-click `Nagios-Sust-x64.exe`.
 
 ## Documentation
-For a deeper dive into the code structure, dynamic handlers, and templating engine choices, see the [Architecture & Design Choices](docs/ARCHITECTURE.md) document.
+- 📖 **[User Guide](docs/USER_GUIDE.md)**: Start here to learn how to configure rules, handle Windows file paths, and customize the Word template.
+- 🏗️ **[Architecture & Design](docs/ARCHITECTURE.md)**: Deep dive into the code structure, dynamic handlers, and templating engine choices for developers.

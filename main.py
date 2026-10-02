@@ -55,7 +55,8 @@ def match_rule(host, rules):
     for rule in rules:
         host_filter = rule.get("host_filter", {})
         if "startswith" in host_filter:
-            if host.startswith(host_filter["startswith"]):
+            prefix = str(host_filter["startswith"])
+            if host.startswith(prefix):
                 return rule
         # Additional filter types can be added here (e.g., regex, endswith)
     return None
