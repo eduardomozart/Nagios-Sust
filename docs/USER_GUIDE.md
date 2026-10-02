@@ -31,7 +31,8 @@ rules:
     host_filter:
       startswith: "SW" # Matches switches or generic hosts
     handler: "generic_ping"
-    options: {}
+    options:
+      capture_screenshot: false # Disables the CMD screenshot generation for this rule
 
   - name: "FortiGate Custom Regex"
     host_filter:
@@ -46,6 +47,17 @@ rules:
     options:
       url_template: "https://{host}/ng/interface"
 ```
+
+### Handler Options
+The `options` block inside a rule passes configuration to the handler script.
+
+**Global Options (Applies to all handlers):**
+- `capture_screenshot` (boolean): Set to `false` to prevent the handler from generating and saving screenshots. Defaults to `true`.
+
+**Specific Options (FortiGate Handler):**
+- `url_template` (string): Overrides the default FortiGate interface URL. Use `{host}` as a placeholder for the equipment name. Default: `https://{host}/ng/interface`
+- `username` (string): Overrides the global credentials with a rule-specific username.
+- `password` (string): Overrides the global credentials with a rule-specific password.
 
 ### Multi-Language Exports
 You can generate reports in multiple languages simultaneously! The script will look for `template_<language>.docx` files.
