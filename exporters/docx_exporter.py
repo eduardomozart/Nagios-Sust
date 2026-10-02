@@ -107,21 +107,9 @@ def export(results, config):
             
         doc = DocxTemplate(template_path)
         
-        # Pre-calculate Summary Analytics
-        summary = {
-            "total": len(results),
-            "counts": {
-                "ok": 0,
-                "warning": 0,
-                "critical": 0,
-                "offline": 0
-            }
-        }
-        
         # Prepare context for the template
         context = {
-            'results': [],
-            'summary': summary
+            'results': []
         }
         
         for res in results:
@@ -134,7 +122,7 @@ def export(results, config):
             pings = res.get("latencies", [])
             
             res_context["latency"] = ""
-            res_context["status"] = "OFFLINE"
+            res_context["status"] = "TIMEOUT"
             
             if pings:
                 worst_ping = max(pings) # Evaluate health based on their worst active link
@@ -142,15 +130,10 @@ def export(results, config):
                 
                 if worst_ping <= 50:
                     res_context["status"] = "OK"
-                    summary["counts"]["ok"] += 1
                 elif worst_ping <= 150:
                     res_context["status"] = "WARNING"
-                    summary["counts"]["warning"] += 1
                 else:
                     res_context["status"] = "CRITICAL"
-                    summary["counts"]["critical"] += 1
-            else:
-                summary["counts"]["offline"] += 1
             
             screenshot_path = res.get("screenshot_path")
             if screenshot_path and os.path.exists(screenshot_path):
