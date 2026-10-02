@@ -23,15 +23,24 @@ def ip_netmask_to_cidr(ip_netmask):
     except:
         return ip_netmask
 
+import re
+
 def _get_wan_ip(driver, interface_name):
     try:
-        # Match row by span text like '(wan1)' or direct td name match
-        row = driver.find_element(By.XPATH, f"//tr[.//span[contains(text(), '({interface_name})')] or .//td[contains(@class, 'name') and text()='{interface_name}']]")
-        # Find cell with IP format (contains . and /)
-        ip_cell = row.find_element(By.XPATH, ".//td[contains(text(), '.') and contains(text(), '/')]")
-        ip_text = ip_cell.text.strip()
-        cidr = ip_netmask_to_cidr(ip_text)
-        return cidr if cidr else ""
+        # Find the element containing the exact interface name
+        elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '({interface_name})') or text()='{interface_name}']")
+        for el in elements:
+            try:
+                # Go up the DOM tree to find the parent table row (tr or div.row)
+                parent = el.find_element(By.XPATH, "./ancestor::tr | ./ancestor::div[contains(@class, 'row')]")
+                # Use Regex to extract the IP address and Netmask/CIDR from the row's plain text
+                match = re.search(r'\b\d{1,3}(?:\.\d{1,3}){3}(?:/(?:\d{1,3}(?:\.\d{1,3}){3}|\d{1,2}))\b', parent.text)
+                if match:
+                    cidr = ip_netmask_to_cidr(match.group(0))
+                    return cidr if cidr else ""
+            except:
+                continue
+        return ""
     except:
         return ""
 
