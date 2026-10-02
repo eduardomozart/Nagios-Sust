@@ -137,7 +137,7 @@ def main():
         matched_rules = match_rules(host, config.get("rules", []))
         
         if not matched_rules:
-            print(f"[{host}] No rules matched.")
+            # print(f"[{host}] No rules matched.")
             continue
             
         for rule in matched_rules:
