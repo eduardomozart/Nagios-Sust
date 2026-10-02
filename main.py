@@ -5,15 +5,14 @@ VERSION = "DEV_BUILD"
 
 # Print header immediately before heavy imports
 print("========================================")
-print(f" Nagios-Sust v{VERSION} ")
+print(f" Nagios-Sust {VERSION} ")
 print("========================================\n")
 
 import yaml
 import importlib
 import getpass
-import tkinter as tk
-from tkinter import filedialog
 from utils.pdf_parser import parse_nagios_pdf
+from utils.dialog import open_file_dialog
 
 # Global credential cache
 _cached_username = None
@@ -66,19 +65,12 @@ def get_pdf_file_path(default_path):
     if os.path.exists(default_path):
         return default_path
         
-    print(f"Warning: PDF file '{default_path}' not found.")
+    print(f"Warning: PDF file '{os.path.basename(default_path)}' not found.")
     print("Please select the PDF file from the file explorer dialog...")
     
-    # Hide the main tkinter window
-    root = tk.Tk()
-    root.withdraw()
-    
-    # Force the dialog to appear on top
-    root.attributes('-topmost', True)
-    
-    file_path = filedialog.askopenfilename(
+    file_path = open_file_dialog(
         title="Select Nagios Report PDF",
-        filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")]
+        file_filter="PDF files (*.pdf)\0*.pdf\0All files (*.*)\0*.*\0\0"
     )
     
     if not file_path:
