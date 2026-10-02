@@ -10,8 +10,24 @@ from utils.network import ip_netmask_to_cidr, ping_host
 
 def _get_wan_details(driver, interface_name):
     try:
+        xpath = f"//*[contains(text(), '({interface_name})') or normalize-space(text())='{interface_name}']"
+        
         # Find the element containing the exact interface name (with or without parenthesis, and handle leading/trailing spaces)
-        elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '({interface_name})') or normalize-space(text())='{interface_name}']")
+        elements = driver.find_elements(By.XPATH, xpath)
+        
+        # If not found, it might be lazy-loaded in a virtual table. Attempt to scroll down.
+        if not elements:
+            try:
+                driver.execute_script("""
+                    let container = document.querySelector('.table-container');
+                    if(container) { container.scrollTop = container.scrollHeight; }
+                """)
+                import time
+                time.sleep(1.5) # Wait for virtual DOM to render the new rows
+                elements = driver.find_elements(By.XPATH, xpath)
+            except:
+                pass
+                
         for el in elements:
             try:
                 # Go up the DOM tree to find the parent table row (tr or div.row)
