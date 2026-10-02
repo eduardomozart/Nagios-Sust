@@ -122,18 +122,9 @@ def export(results, config):
             pings = res.get("latencies", [])
             
             res_context["latency"] = ""
-            res_context["status"] = "TIMEOUT"
             
             if pings:
-                worst_ping = max(pings) # Evaluate health based on their worst active link
-                res_context["latency"] = worst_ping
-                
-                if worst_ping <= 50:
-                    res_context["status"] = "OK"
-                elif worst_ping <= 150:
-                    res_context["status"] = "WARNING"
-                else:
-                    res_context["status"] = "CRITICAL"
+                res_context["latency"] = max(pings) # Evaluate health based on their worst active link
             
             screenshot_path = res.get("screenshot_path")
             if screenshot_path and os.path.exists(screenshot_path):
