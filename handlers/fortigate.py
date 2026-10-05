@@ -126,13 +126,14 @@ def _extract_wan_status(driver, host, options):
                 try:
                     dst = row.find_element(By.CSS_SELECTOR, "div[column-id='dst']").text.strip()
                     gw = row.find_element(By.CSS_SELECTOR, "div[column-id='gateway']").text.strip()
-                    intf_text = row.find_element(By.CSS_SELECTOR, "div[column-id='$intf']").text.strip()
+                    intf_text = row.find_element(By.CSS_SELECTOR, "div[column-id='$intf']").text.strip().lower()
                     
                     for p_conf in diagnose_intfs:
                         p_aliases = [a.strip() for a in p_conf.split('|')]
                         p_primary = p_aliases[0].lower()
                         for alias in p_aliases:
-                            if f"({alias})" in intf_text or alias == intf_text or alias in intf_text:
+                            alias_lower = alias.lower()
+                            if f"({alias_lower})" in intf_text or alias_lower == intf_text or alias_lower in intf_text:
                                 routes_by_intf[p_primary].append((dst, gw))
                                 break
                 except:
