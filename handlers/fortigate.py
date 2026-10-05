@@ -181,8 +181,7 @@ def _extract_wan_status(driver, host, options):
                         p_aliases = [a.strip() for a in p_conf.split('|')]
                         p_primary = p_aliases[0].lower()
                         for alias in p_aliases:
-                            alias_lower = alias.lower()
-                            if f"({alias_lower})" in intf_text or alias_lower == intf_text or alias_lower in intf_text:
+                            if f"({alias.lower()})" in intf_text or alias.lower() == intf_text or alias.lower() in intf_text:
                                 routes_by_intf[p_primary].append((dst, gw))
                                 break
                 except:
