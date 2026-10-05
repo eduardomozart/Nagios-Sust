@@ -121,45 +121,46 @@ def _ping_via_cli(driver, target_ip, host, interface_name=None):
         print(f"[{host}] CLI Ping error for {target_ip}: {e}")
         return ""
 
-def _get_ipsec_endpoint_via_cli(driver, tunnel_name, host):
+def _fetch_all_ipsec_tunnels_via_cli(driver, host):
     from selenium.webdriver.common.action_chains import ActionChains
     from selenium.webdriver.common.by import By
     import time, re
     
+    tunnels_map = {}
     try:
-        print(f"[{host}] Opening CLI Console to resolve IPsec endpoint for tunnel '{tunnel_name}'...")
+        print(f"[{host}] Opening CLI Console to extract all IPsec tunnel mappings...")
         term = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows")
         if not term:
             btn = driver.find_element(By.XPATH, "//nu-icon[@data-nu-icon='fa-solid__terminal']/ancestor::button")
             btn.click()
             time.sleep(5)
             
-        rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
-        text = "\n".join([r.text for r in rows])
-        initial_count = text.count("remote-gw")
-        
         actions = ActionChains(driver)
-        actions.send_keys(f'show vpn ipsec phase1-interface "{tunnel_name}" | grep remote-gw\n')
+        actions.send_keys('show vpn ipsec phase1-interface | grep "edit\\|interface\\|remote-gw"\n')
         actions.perform()
         
-        for _ in range(10):
-            time.sleep(0.5)
-            rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
-            text = "\n".join([r.text for r in rows])
-            current_count = text.count("remote-gw")
-            
-            if current_count > initial_count:
-                match = re.search(r"set remote-gw\s+([\d\.]+)", text.split(f'show vpn ipsec phase1-interface "{tunnel_name}" | grep remote-gw')[-1])
-                if match:
-                    endpoint = match.group(1)
-                    print(f"[{host}] Extracted Remote GW for '{tunnel_name}': {endpoint}")
-                    return endpoint
-                    
-        print(f"[{host}] Timeout waiting for remote-gw in CLI")
-        return ""
+        time.sleep(3) # Wait for output to render
+        rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
+        text = "\n".join([r.text for r in rows])
+        
+        blocks = text.split("edit ")[1:]
+        for block in blocks:
+            name_match = re.search(r'^"([^"]+)"', block.strip())
+            intf_match = re.search(r'set interface\s+"?([^"\s\n]+)"?', block)
+            gw_match = re.search(r'set remote-gw\s+([\d\.]+)', block)
+            if name_match and intf_match and gw_match:
+                intf_key = intf_match.group(1).lower()
+                if intf_key not in tunnels_map:
+                    tunnels_map[intf_key] = {
+                        "name": name_match.group(1),
+                        "remote-gw": gw_match.group(1)
+                    }
+                
+        print(f"[{host}] Extracted IPsec tunnels binding via CLI: {tunnels_map}")
+        return tunnels_map
     except Exception as e:
-        print(f"[{host}] CLI extraction exception: {e}")
-        return ""
+        print(f"[{host}] CLI bulk IPsec extraction exception: {e}")
+        return {}
 
 def _extract_wan_status(driver, host, options):
     wan_status = {}
@@ -302,50 +303,19 @@ def _extract_wan_status(driver, host, options):
         except Exception as e:
             print(f"[{host}] Failed to extract gateways: {e}")
             
-    # 2.5 If IPsec endpoints are requested, scrape the VPN tunnels page to find mappings
+    # 2.5 If IPsec endpoints are requested, bulk extract all tunnel mappings via CLI
     ipsec_tunnels = {}
     if fetch_ipsec:
-        print(f"[{host}] IPsec endpoint requested. Fetching IPsec tunnels...")
-        try:
-            from selenium.webdriver.support.ui import WebDriverWait
-            from selenium.webdriver.support import expected_conditions as EC
-            
-            driver.get(f"https://{host}/ng/vpn/ipsec")
-            # Explicitly wait for the IPsec table component and its data to render in the DOM
-            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.row-cell[column-id='name']")))
-            time.sleep(1) # Give Angular a moment to finish rendering all rows
-            
-            # Find any row that contains column-id attributes
-            rows = driver.find_elements(By.XPATH, "//div[.//div[@column-id='name']]")
-            if not rows:
-                # Fallback selector just in case
-                rows = driver.find_elements(By.CSS_SELECTOR, ".nu-table-row")
-                
-            for row in rows:
-                try:
-                    name = row.find_element(By.CSS_SELECTOR, "div[column-id='name']").text.strip()
-                    intf = row.find_element(By.CSS_SELECTOR, "div[column-id='interface']").text.strip().lower()
-                    if name and intf:
-                        # The interface column might say "Vlan100 (wan1)". We map ALL mentioned aliases to this tunnel.
-                        for p_conf in diagnose_intfs:
-                            p_aliases = [a.strip() for a in p_conf.split('|')]
-                            p_primary = p_aliases[0].lower()
-                            if any(a.lower() in intf for a in p_aliases):
-                                ipsec_tunnels[p_primary] = name
-                                break
-                except:
-                    continue
-            print(f"[{host}] Extracted IPsec tunnels binding: {ipsec_tunnels}")
-            
-            # Navigate back to interface page
-            driver.get(f"https://{host}/ng/interface")
-            time.sleep(3)
-        except Exception as e:
-            print(f"[{host}] Failed to extract IPsec tunnels: {e}")
+        ipsec_tunnels = _fetch_all_ipsec_tunnels_via_cli(driver, host)
+        # Navigate back to interface page if needed, but we probably didn't leave it since we just opened CLI
+        # However, to ensure consistency, let's make sure we are on interface page without any CLI overlay
+        driver.get(f"https://{host}/ng/interface")
+        time.sleep(3)
 
     # 3. Assemble final wan_status and run pings
     for intf_config in diagnose_intfs:
-        primary_intf = intf_config.split('|')[0].strip()
+        aliases = [a.strip() for a in intf_config.split('|')]
+        primary_intf = aliases[0]
         intf_lower = primary_intf.lower()
         data = intf_data[intf_lower]
         key = data["used_alias"].upper()
@@ -399,15 +369,16 @@ def _extract_wan_status(driver, host, options):
                     print(f"[{host}] Gateway for {primary_intf} not found, falling back to interface IP -> {ip}")
                     target_ip = ip
             elif str(intf_ping_target).lower() == "ipsec_endpoint":
-                tunnel_name = ipsec_tunnels.get(intf_lower)
-                if tunnel_name:
-                    print(f"[{host}] IPsec tunnel for {primary_intf} detected as '{tunnel_name}'")
-                    target_ip = _get_ipsec_endpoint_via_cli(driver, tunnel_name, host)
-                    if target_ip:
-                        print(f"[{host}] Pinging {primary_intf} IPsec endpoint -> {target_ip}")
-                    else:
-                        print(f"[{host}] IPsec remote gateway extraction failed, falling back to gateway -> {gw_found}")
-                        target_ip = gw_found if gw_found else ip
+                tunnel_data = None
+                for alias in aliases:
+                    if alias.lower() in ipsec_tunnels:
+                        tunnel_data = ipsec_tunnels[alias.lower()]
+                        break
+                        
+                if tunnel_data:
+                    tunnel_name = tunnel_data["name"]
+                    target_ip = tunnel_data["remote-gw"]
+                    print(f"[{host}] IPsec tunnel '{tunnel_name}' for {primary_intf} detected. Pinging endpoint -> {target_ip}")
                 else:
                     print(f"[{host}] No IPsec tunnel found for {primary_intf}, falling back to gateway -> {gw_found}")
                     target_ip = gw_found if gw_found else ip
@@ -426,10 +397,14 @@ def _extract_wan_status(driver, host, options):
                 else:
                     ping_intf_name = data["used_alias"]
                     if source_val == "ipsec_endpoint":
-                        tunnel_name = ipsec_tunnels.get(intf_lower)
-                        if tunnel_name:
-                            ping_intf_name = tunnel_name
-                            print(f"[{host}] Sourcing ping from IPsec tunnel '{tunnel_name}'")
+                        tunnel_data = None
+                        for alias in aliases:
+                            if alias.lower() in ipsec_tunnels:
+                                tunnel_data = ipsec_tunnels[alias.lower()]
+                                break
+                        if tunnel_data:
+                            ping_intf_name = tunnel_data["name"]
+                            print(f"[{host}] Sourcing ping from IPsec tunnel '{ping_intf_name}'")
                     latency = _ping_via_cli(driver, target_ip, host, interface_name=ping_intf_name)
         
         wan_status[key] = {
