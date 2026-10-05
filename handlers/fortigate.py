@@ -307,10 +307,20 @@ def _extract_wan_status(driver, host, options):
     if fetch_ipsec:
         print(f"[{host}] IPsec endpoint requested. Fetching IPsec tunnels...")
         try:
-            driver.get(f"https://{host}/ng/vpn/ipsec")
-            time.sleep(3) # Wait for table load
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
             
-            rows = driver.find_elements(By.XPATH, "//div[contains(concat(' ', normalize-space(@class), ' '), ' row ')]")
+            driver.get(f"https://{host}/ng/vpn/ipsec")
+            # Explicitly wait for the IPsec table component and its data to render in the DOM
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.row-cell[column-id='name']")))
+            time.sleep(1) # Give Angular a moment to finish rendering all rows
+            
+            # Find any row that contains column-id attributes
+            rows = driver.find_elements(By.XPATH, "//div[.//div[@column-id='name']]")
+            if not rows:
+                # Fallback selector just in case
+                rows = driver.find_elements(By.CSS_SELECTOR, ".nu-table-row")
+                
             for row in rows:
                 try:
                     name = row.find_element(By.CSS_SELECTOR, "div[column-id='name']").text.strip()
