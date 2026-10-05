@@ -10,9 +10,10 @@ from utils.network import ip_netmask_to_cidr, ping_host
 
 def _get_wan_details(driver, interface_name):
     try:
-        xpath = f"//*[contains(text(), '({interface_name})') or normalize-space(text())='{interface_name}']"
+        # Restrict search to the Name column to avoid false positives in the 'Members' column
+        xpath = f"//*[contains(text(), '({interface_name})') or normalize-space(text())='{interface_name}'][ancestor::div[@column-id='name'] or ancestor::td[contains(@class, 'name') or count(preceding-sibling::td) < 2]]"
         
-        # Find the element containing the exact interface name (with or without parenthesis, and handle leading/trailing spaces)
+        # Find the element containing the exact interface name
         elements = driver.find_elements(By.XPATH, xpath)
         
         # If not found, it might be lazy-loaded in a virtual table. Attempt to scroll down incrementally.
