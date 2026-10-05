@@ -105,6 +105,16 @@ def export(results, config):
             print(f"Please copy or rename '{example_name}' to '{template_file}'.")
             continue
             
+        try:
+            test_doc = DocxTemplate(template_path)
+            test_doc.render({'results': []})
+        except Exception as e:
+            print(f"\n[!] Error rendering template '{template_file}' (Language: {lang})")
+            print(f"    Details: {e}")
+            _diagnose_template_error(template_path)
+            print("\nAborting execution due to template error.")
+            sys.exit(1)
+            
         doc = DocxTemplate(template_path)
         
         # Prepare context for the template

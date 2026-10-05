@@ -27,6 +27,27 @@ jobs:
         pip install pyinstaller
         pip install -r requirements.txt
 
+    - name: Check Template Compilation
+      run: |
+        python -c "
+        import sys, glob
+        from docxtpl import DocxTemplate
+        
+        failed = False
+        for file in glob.glob('template*.docx'):
+            print(f'Checking {file}...')
+            try:
+                doc = DocxTemplate(file)
+                doc.render({'results': []})
+                print(f'[OK] {file} compiled successfully.')
+            except Exception as e:
+                print(f'[ERROR] {file} failed to compile: {e}')
+                failed = True
+                
+        if failed:
+            sys.exit(1)
+        "
+
     - name: Inject Version
       run: |
         (Get-Content main.py) -replace 'VERSION = "DEV_BUILD"', "VERSION = `"${{ github.ref_name }}`"" | Set-Content main.py
