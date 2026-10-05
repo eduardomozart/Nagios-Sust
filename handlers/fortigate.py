@@ -42,6 +42,17 @@ def _get_wan_details(driver, interface_name):
                 cells = parent.find_elements(By.XPATH, ".//*[self::td or contains(concat(' ', normalize-space(@class), ' '), ' row-cell ')]")
                 row_text = " ".join([c.get_attribute("textContent").strip() for c in cells])
                 
+                # Extract status from the icon next to the name (e.g. ftnt-interface-rj45-up or ftnt-virtual-wan-link-down)
+                status = "UNKNOWN"
+                try:
+                    icons = parent.find_elements(By.XPATH, ".//f-icon[contains(@class, '-up') or contains(@class, '-down')]")
+                    if icons:
+                        icon_class = icons[0].get_attribute("class")
+                        if "-up" in icon_class: status = "UP"
+                        elif "-down" in icon_class: status = "DOWN"
+                except:
+                    pass
+                
                 # If cells extraction failed (e.g., different DOM), fallback to the parent's textContent with relaxed Regex
                 if not row_text:
                     row_text = parent.get_attribute("textContent")
@@ -50,13 +61,14 @@ def _get_wan_details(driver, interface_name):
                 match = re.search(r'(?:^|\b|\D)(\d{1,3}(?:\.\d{1,3}){3}(?:/(?:\d{1,3}(?:\.\d{1,3}){3}|\d{1,2}))?)', row_text)
                 if match:
                     ip, mask = ip_netmask_to_cidr(match.group(1))
-                    return ip, mask
+                    return ip, mask, status
+                return "", "", status # Found the interface row but no IP
             except Exception as row_e:
                 print(f"DEBUG: Row processing exception for {interface_name}: {row_e}")
                 continue
-        return "", ""
+        return "", "", "NOT FOUND"
     except:
-        return "", ""
+        return "", "", "NOT FOUND"
 
 def _ping_via_cli(driver, target_ip, host, interface_name=None):
     from selenium.webdriver.common.action_chains import ActionChains
@@ -146,39 +158,29 @@ def _extract_wan_status(driver, host, options):
         intf_lower = primary_intf.lower()
         key = primary_intf.upper()
         
-        el = None
-        used_alias = primary_intf
-        
+        found = False
         for alias in aliases:
-            try:
-                el = driver.find_element(By.CSS_SELECTOR, f"div[port-id='{alias}' i]")
-                used_alias = alias
-                break
-            except:
-                pass
-                
-        try:
-            if el:
-                status = el.get_attribute("link")
-                status_clean = status.strip().upper() if status else "UNKNOWN"
-                ip, mask = _get_wan_details(driver, used_alias)
-                
+            ip, mask, status_clean = _get_wan_details(driver, alias)
+            if status_clean != "NOT FOUND":
                 intf_data[intf_lower] = {
                     "key": key,
                     "status": status_clean,
                     "ip": ip,
                     "mask": mask,
-                    "aliases": aliases
+                    "aliases": aliases,
+                    "used_alias": alias
                 }
-            else:
-                raise Exception("Not found")
-        except Exception:
+                found = True
+                break
+                
+        if not found:
             intf_data[intf_lower] = {
                 "key": key,
                 "status": "NOT FOUND",
                 "ip": "",
                 "mask": "",
-                "aliases": aliases
+                "aliases": aliases,
+                "used_alias": primary_intf
             }
 
     # 2. If gather_gateway or ping_target requested it, go to static routing and find gateways.
@@ -261,7 +263,7 @@ def _extract_wan_status(driver, host, options):
         primary_intf = intf_config.split('|')[0].strip()
         intf_lower = primary_intf.lower()
         data = intf_data[intf_lower]
-        key = data["key"]
+        key = data["used_alias"].upper()
         
         status_clean = data["status"]
         ip = data["ip"]
@@ -314,7 +316,7 @@ def _extract_wan_status(driver, host, options):
             
             if target_ip:
                 if intf_ping_method == "cli":
-                    latency = _ping_via_cli(driver, target_ip, host, interface_name=primary_intf)
+                    latency = _ping_via_cli(driver, target_ip, host, interface_name=data["used_alias"])
                 else:
                     latency = ping_host(target_ip)
         
