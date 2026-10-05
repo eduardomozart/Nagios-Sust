@@ -121,6 +121,46 @@ def _ping_via_cli(driver, target_ip, host, interface_name=None):
         print(f"[{host}] CLI Ping error for {target_ip}: {e}")
         return ""
 
+def _get_ipsec_endpoint_via_cli(driver, tunnel_name, host):
+    from selenium.webdriver.common.action_chains import ActionChains
+    from selenium.webdriver.common.by import By
+    import time, re
+    
+    try:
+        print(f"[{host}] Opening CLI Console to resolve IPsec endpoint for tunnel '{tunnel_name}'...")
+        term = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows")
+        if not term:
+            btn = driver.find_element(By.XPATH, "//nu-icon[@data-nu-icon='fa-solid__terminal']/ancestor::button")
+            btn.click()
+            time.sleep(5)
+            
+        rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
+        text = "\n".join([r.text for r in rows])
+        initial_count = text.count("remote-gw")
+        
+        actions = ActionChains(driver)
+        actions.send_keys(f'show vpn ipsec phase1-interface "{tunnel_name}" | grep remote-gw\n')
+        actions.perform()
+        
+        for _ in range(10):
+            time.sleep(0.5)
+            rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
+            text = "\n".join([r.text for r in rows])
+            current_count = text.count("remote-gw")
+            
+            if current_count > initial_count:
+                match = re.search(r"set remote-gw\s+([\d\.]+)", text.split(f'show vpn ipsec phase1-interface "{tunnel_name}" | grep remote-gw')[-1])
+                if match:
+                    endpoint = match.group(1)
+                    print(f"[{host}] Extracted Remote GW for '{tunnel_name}': {endpoint}")
+                    return endpoint
+                    
+        print(f"[{host}] Timeout waiting for remote-gw in CLI")
+        return ""
+    except Exception as e:
+        print(f"[{host}] CLI extraction exception: {e}")
+        return ""
+
 def _extract_wan_status(driver, host, options):
     wan_status = {}
     
@@ -137,17 +177,21 @@ def _extract_wan_status(driver, host, options):
         
     default_ping_enabled = ping_defaults.get("enabled", False)
     default_ping_target = ping_defaults.get("target", "interface")
-    default_ping_method = ping_defaults.get("method", "host")
+    default_ping_source = ping_defaults.get("source", "host")
 
-    # Decide if we need to fetch static routes
+    # Decide if we need to fetch static routes or ipsec bindings
     fetch_routes = gather_gateway or str(default_ping_target).lower() == "gateway"
+    fetch_ipsec = str(default_ping_target).lower() == "ipsec_endpoint" or str(default_ping_source).lower() == "ipsec_endpoint"
     
-    # Check if any specific interface configuration requests a gateway ping
+    # Check if any specific interface configuration requests a gateway or ipsec ping
     for k, v in ping_config.items():
         if k != "default" and isinstance(v, dict):
-            if str(v.get("target", "")).lower() == "gateway":
+            target = str(v.get("target", "")).lower()
+            source = str(v.get("source", "")).lower()
+            if target == "gateway":
                 fetch_routes = True
-                break
+            if target == "ipsec_endpoint" or source == "ipsec_endpoint":
+                fetch_ipsec = True
 
     # 1. We are already on /ng/interface. Extract IP, mask, and link status.
     intf_data = {}
@@ -258,6 +302,37 @@ def _extract_wan_status(driver, host, options):
         except Exception as e:
             print(f"[{host}] Failed to extract gateways: {e}")
             
+    # 2.5 If IPsec endpoints are requested, scrape the VPN tunnels page to find mappings
+    ipsec_tunnels = {}
+    if fetch_ipsec:
+        print(f"[{host}] IPsec endpoint requested. Fetching IPsec tunnels...")
+        try:
+            driver.get(f"https://{host}/ng/vpn/ipsec")
+            time.sleep(3) # Wait for table load
+            
+            rows = driver.find_elements(By.XPATH, "//div[contains(concat(' ', normalize-space(@class), ' '), ' row ')]")
+            for row in rows:
+                try:
+                    name = row.find_element(By.CSS_SELECTOR, "div[column-id='name']").text.strip()
+                    intf = row.find_element(By.CSS_SELECTOR, "div[column-id='interface']").text.strip().lower()
+                    if name and intf:
+                        # The interface column might say "Vlan100 (wan1)". We map ALL mentioned aliases to this tunnel.
+                        for p_conf in diagnose_intfs:
+                            p_aliases = [a.strip() for a in p_conf.split('|')]
+                            p_primary = p_aliases[0].lower()
+                            if any(a.lower() in intf for a in p_aliases):
+                                ipsec_tunnels[p_primary] = name
+                                break
+                except:
+                    continue
+            print(f"[{host}] Extracted IPsec tunnels binding: {ipsec_tunnels}")
+            
+            # Navigate back to interface page
+            driver.get(f"https://{host}/ng/interface")
+            time.sleep(3)
+        except Exception as e:
+            print(f"[{host}] Failed to extract IPsec tunnels: {e}")
+
     # 3. Assemble final wan_status and run pings
     for intf_config in diagnose_intfs:
         primary_intf = intf_config.split('|')[0].strip()
@@ -275,7 +350,7 @@ def _extract_wan_status(driver, host, options):
         # Apply global ping defaults
         wants_ping = default_ping_enabled
         intf_ping_target = default_ping_target
-        intf_ping_method = default_ping_method
+        intf_ping_source = default_ping_source
         
         # Check for interface-specific overrides
         for k, v in ping_config.items():
@@ -288,13 +363,20 @@ def _extract_wan_status(driver, host, options):
                 if isinstance(v, dict):
                     if "enabled" in v: wants_ping = v["enabled"]
                     if "target" in v: intf_ping_target = v["target"]
-                    if "method" in v: intf_ping_method = v["method"]
+                    if "source" in v: intf_ping_source = v["source"]
                 elif isinstance(v, bool):
                     wants_ping = v
                 break
                 
         if ip == "0.0.0.0":
             status_clean = "DOWN (No IP)"
+            
+        # Validation: prevent source='host' from pinging invalid targets
+        if wants_ping and str(intf_ping_source).lower() == "host":
+            tgt = str(intf_ping_target).lower()
+            if tgt not in ["interface", "gateway"]:
+                print(f"[{host}] ERROR: source='host' only supports 'interface' or 'gateway' targets. Cannot use '{intf_ping_target}'. Ping disabled for {primary_intf}.")
+                wants_ping = False
             
         # Only ping if requested AND if the physical status is UP
         target_ip = None
@@ -306,6 +388,19 @@ def _extract_wan_status(driver, host, options):
                 else:
                     print(f"[{host}] Gateway for {primary_intf} not found, falling back to interface IP -> {ip}")
                     target_ip = ip
+            elif str(intf_ping_target).lower() == "ipsec_endpoint":
+                tunnel_name = ipsec_tunnels.get(intf_lower)
+                if tunnel_name:
+                    print(f"[{host}] IPsec tunnel for {primary_intf} detected as '{tunnel_name}'")
+                    target_ip = _get_ipsec_endpoint_via_cli(driver, tunnel_name, host)
+                    if target_ip:
+                        print(f"[{host}] Pinging {primary_intf} IPsec endpoint -> {target_ip}")
+                    else:
+                        print(f"[{host}] IPsec remote gateway extraction failed, falling back to gateway -> {gw_found}")
+                        target_ip = gw_found if gw_found else ip
+                else:
+                    print(f"[{host}] No IPsec tunnel found for {primary_intf}, falling back to gateway -> {gw_found}")
+                    target_ip = gw_found if gw_found else ip
             elif str(intf_ping_target).lower() == "interface":
                 target_ip = ip
                 print(f"[{host}] Pinging {primary_intf} interface IP -> {target_ip}")
@@ -315,10 +410,17 @@ def _extract_wan_status(driver, host, options):
                 print(f"[{host}] Pinging custom target -> {target_ip} for {primary_intf}")
             
             if target_ip:
-                if intf_ping_method == "cli":
-                    latency = _ping_via_cli(driver, target_ip, host, interface_name=data["used_alias"])
-                else:
+                source_val = str(intf_ping_source).lower()
+                if source_val == "host":
                     latency = ping_host(target_ip)
+                else:
+                    ping_intf_name = data["used_alias"]
+                    if source_val == "ipsec_endpoint":
+                        tunnel_name = ipsec_tunnels.get(intf_lower)
+                        if tunnel_name:
+                            ping_intf_name = tunnel_name
+                            print(f"[{host}] Sourcing ping from IPsec tunnel '{tunnel_name}'")
+                    latency = _ping_via_cli(driver, target_ip, host, interface_name=ping_intf_name)
         
         wan_status[key] = {
             "status": status_clean,
