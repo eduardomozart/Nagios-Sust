@@ -181,13 +181,4 @@ def main():
             print(f"Error executing exporter {exporter_type}: {e}")
 
 if __name__ == "__main__":
-    try:
-        main()
-    except SystemExit as e:
-        if e.code != 0:
-            print(f"Exited with code {e.code}")
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-    finally:
-        input("\nPress Enter to exit...")
+    main()
