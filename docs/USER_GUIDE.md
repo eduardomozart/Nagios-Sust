@@ -119,12 +119,19 @@ You can even use conditional logic directly in Word to show specific text depend
    
 2. **Standard Inline Tags (`{% if ... %}`)**: These tags DO NOT delete the paragraph. You should use these when you want to conditionally insert text in the middle of an existing sentence or line.
 
-**Example of combining both correctly:**
+3. **MS Word Paragraph Spacing (Ghost Paragraphs)**: When Jinja removes a `{%p` tag, it merges the paragraphs above and below it. If those paragraphs have MS Word's native "Space After" formatting (usually 8pt or 12pt by default), those spaces stack up and look like a huge gap.
+   **Fix**: Select the block of text in your Word template, go to the **Layout** tab -> **Spacing**, and set **After** to `0 pt`.
+
+**Example of combining tags correctly:**
 
 ```text
 {%p if res.error %}
 Error: {{ res.error }}
 {%p else %}
-WAN1 Link Status: {{ res.wan_status.WAN1 }} {% if res.wan_status.WAN1_IP %}({{ res.wan_status.WAN1_IP }}){% endif %}
+{%p for intf_key, intf_data in res.wan_status.items() %}
+{%p if intf_data.ip %}
+Link Status {{ intf_key }}: {{ intf_data.status }} {% if intf_data.latency %}({{ intf_data.latency }}){% endif %}
+{%p endif %}
+{%p endfor %}
 {%p endif %}
 ```

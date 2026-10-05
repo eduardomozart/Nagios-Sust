@@ -14,13 +14,17 @@ def _diagnose_template_error(template_path):
         import zipfile, re
         with zipfile.ZipFile(template_path) as z:
             xml = z.read('word/document.xml').decode('utf-8')
-            text = re.sub(r'<[^>]+>', '', xml)
-            tags = re.findall(r'\{[%\{].*?[%\}]\}', text)
-            if not tags: return
-            
-            print("\n    --- Template Tags Found (In Order) ---")
-            for i, tag in enumerate(tags):
-                print(f"    Tag {i+1}: {tag}")
+            print("\n    --- Template Paragraph Structure ---")
+            paragraphs = re.findall(r'<w:p\b.*?</w:p>', xml, flags=re.DOTALL)
+            for i, p_xml in enumerate(paragraphs):
+                p_text = re.sub(r'<[^>]+>', '', p_xml)
+                if not p_text:
+                    if '<w:drawing' in p_xml:
+                        print(f"    P{i+1}: [IMAGE/DRAWING]")
+                    else:
+                        print(f"    P{i+1}: [EMPTY PARAGRAPH]")
+                else:
+                    print(f"    P{i+1}: {p_text}")
             print("    --------------------------------------")
             
             # Deep XML analysis to detect the "{%p mixed with other tags" issue
