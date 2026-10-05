@@ -62,7 +62,8 @@ The `options` block inside a rule passes configuration to the handler script.
 - `url_template` (string): Overrides the default FortiGate interface URL. Default: `https://{host}/ng/interface`
 - `diagnose_interfaces` (list): Which interfaces to extract physical status (UP/DOWN) and IP/Mask for. You can use a pipe `|` to provide fallbacks for mixed hardware (e.g. `"internal5|port5"` will try internal5, then fallback to port5, but output it as `INTERNAL5_IP`). Default: `["wan1", "wan2"]`
 - `ping_interfaces` (list): Which of the diagnosed interfaces should also be pinged to calculate latency. To completely disable pinging for a FortiGate, set this to `[]`. Default: inherits the exact same list as `diagnose_interfaces`.
-- `ping_gateway` (boolean): If `true`, the script will parse `https://{host}/ng/routing/static` to find the default route Gateway for the interface and ping *that* instead of the local interface IP. Default: `false`
+- `gather_gateway` (boolean): If `true`, the script will parse `https://{host}/ng/routing/static` to find the default route Gateway for the interface so it can be exported to the Word template. Default: `false`
+- `ping_target` (string): If set to `"gateway"`, the script will ping the default route Gateway for the interface (automatically sets `gather_gateway: true`). If set to `"interface"`, it pings the local interface IP. You can also provide a custom IP like `"8.8.8.8"` to ping an external address. Default: `"interface"`
 - `ping_method` (string): Specifies how the ping is executed. Set to `"cli"` to make the script open the FortiGate WebUI CLI console and run `execute ping X.X.X.X` to capture latency natively. Set to `"host"` to ping from the machine executing this program. Default: `"host"`
 - `username` (string): Overrides the global credentials with a rule-specific username.
 - `password` (string): Overrides the global credentials with a rule-specific password.
@@ -105,8 +106,9 @@ Each `intf_data` contains the following properties:
 - `{{ intf_data.status }}`: Link status of the interface (e.g., UP, DOWN, DOWN (No IP))
 - `{{ intf_data.ip }}`: The raw IP address of the interface
 - `{{ intf_data.mask }}`: The CIDR mask of the interface
-- `{{ intf_data.gw }}`: The gateway IP address (if extracted)
+- `{{ intf_data.gw }}`: The gateway IP address (if extracted or set via custom ping target)
 - `{{ intf_data.ping_interface }}`: Boolean flag indicating if ping was requested for this interface in the configuration
+- `{{ intf_data.ping_target_ip }}`: The actual IP address that was pinged
 - `{{ intf_data.latency }}`: The ping latency in ms (empty if unreachable or not requested)
 
 ### Available Template Variables (Generic Ping Handler):

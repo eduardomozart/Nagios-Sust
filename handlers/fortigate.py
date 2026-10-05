@@ -58,7 +58,7 @@ def _get_wan_details(driver, interface_name):
     except:
         return "", ""
 
-def _ping_via_cli(driver, target_ip, host):
+def _ping_via_cli(driver, target_ip, host, interface_name=None):
     from selenium.webdriver.common.action_chains import ActionChains
     from selenium.webdriver.common.by import By
     import time, re
@@ -81,6 +81,8 @@ def _ping_via_cli(driver, target_ip, host):
         
         # Send command
         actions = ActionChains(driver)
+        if interface_name:
+            actions.send_keys(f"execute ping-options interface {interface_name}\n")
         actions.send_keys(f"execute ping {target_ip}\n")
         actions.perform()
         
@@ -112,7 +114,8 @@ def _extract_wan_status(driver, host, options):
     
     diagnose_intfs = options.get("diagnose_interfaces", ["wan1", "wan2"])
     ping_intfs = options.get("ping_interfaces", diagnose_intfs)
-    ping_gateway = options.get("ping_gateway", False)
+    ping_target_opt = options.get("ping_target", "interface")
+    gather_gateway = options.get("gather_gateway", False)
     
     # 1. We are already on /ng/interface. Extract IP, mask, and link status.
     intf_data = {}
@@ -158,10 +161,10 @@ def _extract_wan_status(driver, host, options):
                 "aliases": aliases
             }
 
-    # 2. If ping_gateway is enabled, go to static routing and find gateways.
+    # 2. If gather_gateway or ping_target requested it, go to static routing and find gateways.
     gateways = {}
-    if ping_gateway:
-        print(f"[{host}] ping_gateway is enabled. Fetching static routes to find gateways...")
+    if gather_gateway or str(ping_target_opt).lower() == "gateway":
+        print(f"[{host}] Routing table scrape requested. Fetching static routes to find gateways...")
         try:
             driver.get(f"https://{host}/ng/routing/static")
             time.sleep(3) # Wait for table load
@@ -258,23 +261,27 @@ def _extract_wan_status(driver, host, options):
             status_clean = "DOWN (No IP)"
             
         # Only ping if requested AND if the physical status is UP
+        target_ip = None
         if status_clean == "UP" and wants_ping:
-            target_ip = None
-            if ping_gateway:
+            if str(ping_target_opt).lower() == "gateway":
                 target_ip = gw_found
                 if target_ip:
                     print(f"[{host}] Pinging {primary_intf} gateway -> {target_ip}")
                 else:
                     print(f"[{host}] Gateway for {primary_intf} not found, falling back to interface IP -> {ip}")
                     target_ip = ip
-            else:
+            elif str(ping_target_opt).lower() == "interface":
                 target_ip = ip
                 print(f"[{host}] Pinging {primary_intf} interface IP -> {target_ip}")
+            else:
+                target_ip = str(ping_target_opt)
+                gw_found = target_ip # Update gw_found so the template prints it correctly if requested
+                print(f"[{host}] Pinging custom target -> {target_ip} for {primary_intf}")
             
             if target_ip:
                 ping_method = options.get("ping_method", "host")
                 if ping_method == "cli":
-                    latency = _ping_via_cli(driver, target_ip, host)
+                    latency = _ping_via_cli(driver, target_ip, host, interface_name=primary_intf)
                 else:
                     latency = ping_host(target_ip)
         
@@ -284,7 +291,8 @@ def _extract_wan_status(driver, host, options):
             "mask": mask,
             "gw": gw_found,
             "latency": latency,
-            "ping_interface": wants_ping
+            "ping_interface": wants_ping,
+            "ping_target_ip": target_ip if target_ip else ""
         }
 
     return wan_status

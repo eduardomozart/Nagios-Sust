@@ -27,7 +27,8 @@ rules:
     handler: "fortigate"
     options:
       url_template: "https://{host}/ng/interface"
-      ping_gateway: true
+      gather_gateway: false # Set to true to scrape the routing table and expose the gateway IP to the Word template
+      ping_target: "8.8.8.8" # Set to "gateway" to ping the gateway, "interface" to ping the interface IP, or a custom IP like "8.8.8.8"
       ping_method: "cli" # Use "cli" to ping through the Fortigate CLI Console, or "host" to ping from this machine
       diagnose_interfaces:
         - "wan1"
