@@ -123,7 +123,9 @@ def export(results, config):
             
             res_context["latency"] = ""
             
-            if pings:
+            if res.get("has_failure"):
+                res_context["latency"] = "" # Force the host into Ping Timeout summary
+            elif pings:
                 res_context["latency"] = max(pings) # Evaluate health based on their worst active link
             
             screenshot_path = res.get("screenshot_path")

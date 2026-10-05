@@ -62,7 +62,7 @@ The `options` block inside a rule passes configuration to the handler script.
 - `url_template` (string): Overrides the default FortiGate interface URL. Default: `https://{host}/ng/interface`
 - `diagnose_interfaces` (list): Which interfaces to extract physical status (UP/DOWN) and IP/Mask for. You can use a pipe `|` to provide fallbacks for mixed hardware (e.g. `"internal5|port5"` will try internal5, then fallback to port5, but output it as `INTERNAL5_IP`). Default: `["wan1", "wan2"]`
 - `ping_interfaces` (list): Which of the diagnosed interfaces should also be pinged to calculate latency. To completely disable pinging for a FortiGate, set this to `[]`. Default: inherits the exact same list as `diagnose_interfaces`.
-- `ping_gateway` (boolean): If `true`, the script will parse `https://{host}/ng/routing/static/` to find the default route Gateway for the interface and ping *that* instead of the local interface IP. Default: `false`
+- `ping_gateway` (boolean): If `true`, the script will parse `https://{host}/ng/routing/static` to find the default route Gateway for the interface and ping *that* instead of the local interface IP. Default: `false`
 - `username` (string): Overrides the global credentials with a rule-specific username.
 - `password` (string): Overrides the global credentials with a rule-specific password.
 
@@ -95,17 +95,18 @@ Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Micro
 - `{{ res.host }}`: The equipment name
 - `{{ res.rule_name }}`: The name of the rule that was matched (e.g., "Generic FortiGate Rule")
 - `{{ res.latency }}`: The worst ping latency across all valid links in ms (empty if unreachable)
+- `{{ res.screenshot }}`: The injected screenshot
 
 ### Available Template Variables (FortiGate Handler):
-- `{{ res.wan_status.WAN1 }}` / `{{ res.wan_status.WAN2 }}`: Link status of the primary interfaces (UP/DOWN)
-- `{{ res.wan_status.WAN1_IP }}` / `{{ res.wan_status.WAN2_IP }}`: The raw IP address of the primary interfaces
-- `{{ res.wan_status.WAN1_MASK }}` / `{{ res.wan_status.WAN2_MASK }}`: The CIDR mask of the primary interfaces
-- `{{ res.wan_status.WAN1_LATENCY }}` / `{{ res.wan_status.WAN2_LATENCY }}`: The ping latency in ms (empty if unreachable)
-- `{{ res.wan_status.WAN3 }}`: Link status of port5/internal5 (FortiGate specific, collected automatically if configured in the device's interface table)
-- `{{ res.wan_status.WAN3_IP }}`: The raw IP address of port5/internal5
-- `{{ res.wan_status.WAN3_MASK }}`: The CIDR mask of port5/internal5
-- `{{ res.wan_status.WAN3_LATENCY }}`: The ping latency of port5/internal5 in ms
-- `{{ res.screenshot }}`: The injected screenshot
+The `wan_status` object is a dictionary containing interface details. You can iterate over it using `{%p for intf_key, intf_data in res.wan_status.items() %}`.
+
+Each `intf_data` contains the following properties:
+- `{{ intf_data.status }}`: Link status of the interface (e.g., UP, DOWN, DOWN (No IP))
+- `{{ intf_data.ip }}`: The raw IP address of the interface
+- `{{ intf_data.mask }}`: The CIDR mask of the interface
+- `{{ intf_data.gw }}`: The gateway IP address (if extracted)
+- `{{ intf_data.ping_interface }}`: Boolean flag indicating if ping was requested for this interface in the configuration
+- `{{ intf_data.latency }}`: The ping latency in ms (empty if unreachable or not requested)
 
 ### Available Template Variables (Generic Ping Handler):
 - No extra variables natively exported (only the global `res.latency` is populated)

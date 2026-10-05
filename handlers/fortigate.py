@@ -113,7 +113,7 @@ def _extract_wan_status(driver, host, options):
     if ping_gateway:
         print(f"[{host}] ping_gateway is enabled. Fetching static routes to find gateways...")
         try:
-            driver.get(f"https://{host}/ng/routing/static/")
+            driver.get(f"https://{host}/ng/routing/static")
             time.sleep(3) # Wait for table load
             
             rows = driver.find_elements(By.XPATH, "//div[contains(concat(' ', normalize-space(@class), ' '), ' row ')]")
@@ -204,6 +204,9 @@ def _extract_wan_status(driver, host, options):
                 wants_ping = True
                 break
                 
+        if ip == "0.0.0.0":
+            status_clean = "DOWN (No IP)"
+            
         # Only ping if requested AND if the physical status is UP
         if status_clean == "UP" and wants_ping:
             target_ip = None
@@ -226,7 +229,8 @@ def _extract_wan_status(driver, host, options):
             "ip": ip,
             "mask": mask,
             "gw": gw_found,
-            "latency": latency
+            "latency": latency,
+            "ping_interface": wants_ping
         }
 
     return wan_status
@@ -358,14 +362,32 @@ def handle(host, alert_info, options):
         
         # Populate universal latencies array for exporters
         latencies = []
+        has_failure = False
         for intf_key, intf_data in result["wan_status"].items():
+            status = intf_data.get("status", "")
+            ip = intf_data.get("ip", "")
+            
+            # 1. 0.0.0.0 (Logical down)
+            if ip == "0.0.0.0":
+                has_failure = True
+                
+            # 2. Monitored interface is DOWN with an assigned IP address
+            if "DOWN" in status and ip and ip != "0.0.0.0":
+                has_failure = True
+                
+            # 3. Ping gateway or interface was requested, but failed (timeout)
+            if intf_data.get("ping_interface") and status.startswith("UP") and not intf_data.get("latency"):
+                has_failure = True
+                
             val = intf_data.get("latency")
             if val:
                 try:
                     latencies.append(int(val))
                 except:
                     pass
+                    
         result["latencies"] = latencies
+        result["has_failure"] = has_failure
 
         wan_str = ", ".join([f"{k}={v}" for k, v in result["wan_status"].items()])
         print(f"[{host}] Collected status: {wan_str}")

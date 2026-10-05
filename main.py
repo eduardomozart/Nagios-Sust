@@ -42,7 +42,6 @@ def load_config(config_file="config.yaml"):
     if not os.path.exists(config_path):
         print(f"Error: Configuration file '{config_file}' not found.")
         print(f"Please rename 'config.example.yaml' to '{config_file}' and set up your rules.")
-        input("Press Enter to exit...")
         sys.exit(1)
         
     try:
@@ -182,4 +181,13 @@ def main():
             print(f"Error executing exporter {exporter_type}: {e}")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit as e:
+        if e.code != 0:
+            print(f"Exited with code {e.code}")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+    finally:
+        input("\nPress Enter to exit...")
