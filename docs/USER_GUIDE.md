@@ -63,6 +63,7 @@ The `options` block inside a rule passes configuration to the handler script.
 - `diagnose_interfaces` (list): Which interfaces to extract physical status (UP/DOWN) and IP/Mask for. You can use a pipe `|` to provide fallbacks for mixed hardware (e.g. `"internal5|port5"` will try internal5, then fallback to port5, but output it as `INTERNAL5_IP`). Default: `["wan1", "wan2"]`
 - `ping_interfaces` (list): Which of the diagnosed interfaces should also be pinged to calculate latency. To completely disable pinging for a FortiGate, set this to `[]`. Default: inherits the exact same list as `diagnose_interfaces`.
 - `ping_gateway` (boolean): If `true`, the script will parse `https://{host}/ng/routing/static` to find the default route Gateway for the interface and ping *that* instead of the local interface IP. Default: `false`
+- `ping_method` (string): Specifies how the ping is executed. Set to `"cli"` to make the script open the FortiGate WebUI CLI console and run `execute ping X.X.X.X` to capture latency natively. Set to `"host"` to ping from the machine executing this program. Default: `"host"`
 - `username` (string): Overrides the global credentials with a rule-specific username.
 - `password` (string): Overrides the global credentials with a rule-specific password.
 
