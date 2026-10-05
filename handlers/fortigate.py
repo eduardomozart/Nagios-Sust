@@ -58,6 +58,55 @@ def _get_wan_details(driver, interface_name):
     except:
         return "", ""
 
+def _ping_via_cli(driver, target_ip, host):
+    from selenium.webdriver.common.action_chains import ActionChains
+    from selenium.webdriver.common.by import By
+    import time, re
+    
+    try:
+        print(f"[{host}] Opening CLI Console to ping {target_ip}...")
+        
+        # Check if terminal is already visible by looking for xterm-rows
+        term = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows")
+        if not term:
+            # Click the terminal button
+            btn = driver.find_element(By.XPATH, "//nu-icon[@data-nu-icon='fa-solid__terminal']/ancestor::button")
+            btn.click()
+            time.sleep(5) # Wait for terminal to slide out and connect
+            
+        # Get baseline of how many "packet loss" strings exist
+        rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
+        text = "\n".join([r.text for r in rows])
+        initial_count = text.count("packet loss")
+        
+        # Send command
+        actions = ActionChains(driver)
+        actions.send_keys(f"execute ping {target_ip}\n")
+        actions.perform()
+        
+        # Wait up to 15 seconds for completion
+        for _ in range(15):
+            time.sleep(1)
+            rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
+            text = "\n".join([r.text for r in rows])
+            current_count = text.count("packet loss")
+            
+            if current_count > initial_count:
+                # Extract latency
+                matches = re.findall(r"min/avg/max.*?=\s*[\d\.]+/([\d\.]+)/[\d\.]+", text)
+                if matches:
+                    print(f"[{host}] CLI Ping successful: avg latency {matches[-1]}ms")
+                    return str(int(float(matches[-1])))
+                else:
+                    print(f"[{host}] CLI Ping failed or 100% loss")
+                    return ""
+                    
+        print(f"[{host}] CLI Ping timed out after 15 seconds")
+        return ""
+    except Exception as e:
+        print(f"[{host}] CLI Ping error for {target_ip}: {e}")
+        return ""
+
 def _extract_wan_status(driver, host, options):
     wan_status = {}
     
@@ -224,7 +273,11 @@ def _extract_wan_status(driver, host, options):
                 print(f"[{host}] Pinging {primary_intf} interface IP -> {target_ip}")
             
             if target_ip:
-                latency = ping_host(target_ip)
+                ping_method = options.get("ping_method", "host")
+                if ping_method == "cli":
+                    latency = _ping_via_cli(driver, target_ip, host)
+                else:
+                    latency = ping_host(target_ip)
         
         wan_status[key] = {
             "status": status_clean,
