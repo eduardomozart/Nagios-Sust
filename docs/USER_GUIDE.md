@@ -60,11 +60,12 @@ The `options` block inside a rule passes configuration to the handler script.
 
 **Specific Options (FortiGate Handler):**
 - `url_template` (string): Overrides the default FortiGate interface URL. Default: `https://{host}/ng/interface`
-- `diagnose_interfaces` (list): Which interfaces to extract physical status (UP/DOWN) and IP/Mask for. You can use a pipe `|` to provide fallbacks for mixed hardware (e.g. `"internal5|port5"` will try internal5, then fallback to port5, but output it as `INTERNAL5_IP`). Default: `["wan1", "wan2"]`
-- `ping_interfaces` (list): Which of the diagnosed interfaces should also be pinged to calculate latency. To completely disable pinging for a FortiGate, set this to `[]`. Default: inherits the exact same list as `diagnose_interfaces`.
-- `gather_gateway` (boolean): If `true`, the script will parse `https://{host}/ng/routing/static` to find the default route Gateway for the interface so it can be exported to the Word template. Default: `false`
-- `ping_target` (string): If set to `"gateway"`, the script will ping the default route Gateway for the interface (automatically sets `gather_gateway: true`). If set to `"interface"`, it pings the local interface IP. You can also provide a custom IP like `"8.8.8.8"` to ping an external address. Default: `"interface"`
-- `ping_method` (string): Specifies how the ping is executed. Set to `"cli"` to make the script open the FortiGate WebUI CLI console and run `execute ping X.X.X.X` to capture latency natively. Set to `"host"` to ping from the machine executing this program. Default: `"host"`
+- `diagnose_interfaces` (list): Which interfaces to extract physical status (UP/DOWN) and IP/Mask for. You can use a pipe `|` to provide fallbacks for mixed hardware (e.g. `"internal5|port5"`). Default: `["wan1", "wan2"]`
+- `gather_gateway` (boolean): If `true`, the script parses `https://{host}/ng/routing/static` to export the Gateway IP to the Word template. Default: `false`
+- `ping` (dictionary): Unified configuration block for ping execution overrides. You can specify a `"default"` block for global rules and interface names for specific rules. By default, ping is **disabled** for all interfaces. If enabled, it targets the local `"interface"` using the `"host"` execution method. 
+  - `enabled` (boolean): Whether to execute ping for this interface. Default: `false`.
+  - `target` (string): Set to `"gateway"` to ping the routing table gateway (implicitly enables `gather_gateway`), `"interface"` for local IP, or a custom IP like `"8.8.8.8"`. Default: `"interface"`.
+  - `method` (string): Set to `"cli"` to run natively through the FortiOS Console (`execute ping`), or `"host"` to ping from the machine running the script. Default: `"host"`.
 - `username` (string): Overrides the global credentials with a rule-specific username.
 - `password` (string): Overrides the global credentials with a rule-specific password.
 

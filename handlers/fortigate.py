@@ -113,10 +113,30 @@ def _extract_wan_status(driver, host, options):
     wan_status = {}
     
     diagnose_intfs = options.get("diagnose_interfaces", ["wan1", "wan2"])
-    ping_intfs = options.get("ping_interfaces", diagnose_intfs)
-    ping_target_opt = options.get("ping_target", "interface")
     gather_gateway = options.get("gather_gateway", False)
     
+    ping_config = options.get("ping", {})
+    if not isinstance(ping_config, dict):
+        ping_config = {}
+        
+    ping_defaults = ping_config.get("default", {})
+    if not isinstance(ping_defaults, dict):
+        ping_defaults = {}
+        
+    default_ping_enabled = ping_defaults.get("enabled", False)
+    default_ping_target = ping_defaults.get("target", "interface")
+    default_ping_method = ping_defaults.get("method", "host")
+
+    # Decide if we need to fetch static routes
+    fetch_routes = gather_gateway or str(default_ping_target).lower() == "gateway"
+    
+    # Check if any specific interface configuration requests a gateway ping
+    for k, v in ping_config.items():
+        if k != "default" and isinstance(v, dict):
+            if str(v.get("target", "")).lower() == "gateway":
+                fetch_routes = True
+                break
+
     # 1. We are already on /ng/interface. Extract IP, mask, and link status.
     intf_data = {}
     for intf_config in diagnose_intfs:
@@ -163,7 +183,7 @@ def _extract_wan_status(driver, host, options):
 
     # 2. If gather_gateway or ping_target requested it, go to static routing and find gateways.
     gateways = {}
-    if gather_gateway or str(ping_target_opt).lower() == "gateway":
+    if fetch_routes:
         print(f"[{host}] Routing table scrape requested. Fetching static routes to find gateways...")
         try:
             driver.get(f"https://{host}/ng/routing/static")
@@ -250,11 +270,25 @@ def _extract_wan_status(driver, host, options):
         
         gw_found = gateways.get(intf_lower, "")
         
-        # Check if this interface was requested for pinging
-        wants_ping = False
-        for p_conf in ping_intfs:
-            if p_conf.split('|')[0].strip().lower() == intf_lower:
-                wants_ping = True
+        # Apply global ping defaults
+        wants_ping = default_ping_enabled
+        intf_ping_target = default_ping_target
+        intf_ping_method = default_ping_method
+        
+        # Check for interface-specific overrides
+        for k, v in ping_config.items():
+            if k == "default":
+                continue
+                
+            # k could be an alias like 'internal5|port5'
+            k_primary = k.split('|')[0].strip().lower()
+            if k_primary == intf_lower:
+                if isinstance(v, dict):
+                    if "enabled" in v: wants_ping = v["enabled"]
+                    if "target" in v: intf_ping_target = v["target"]
+                    if "method" in v: intf_ping_method = v["method"]
+                elif isinstance(v, bool):
+                    wants_ping = v
                 break
                 
         if ip == "0.0.0.0":
@@ -263,24 +297,23 @@ def _extract_wan_status(driver, host, options):
         # Only ping if requested AND if the physical status is UP
         target_ip = None
         if status_clean == "UP" and wants_ping:
-            if str(ping_target_opt).lower() == "gateway":
+            if str(intf_ping_target).lower() == "gateway":
                 target_ip = gw_found
                 if target_ip:
                     print(f"[{host}] Pinging {primary_intf} gateway -> {target_ip}")
                 else:
                     print(f"[{host}] Gateway for {primary_intf} not found, falling back to interface IP -> {ip}")
                     target_ip = ip
-            elif str(ping_target_opt).lower() == "interface":
+            elif str(intf_ping_target).lower() == "interface":
                 target_ip = ip
                 print(f"[{host}] Pinging {primary_intf} interface IP -> {target_ip}")
             else:
-                target_ip = str(ping_target_opt)
+                target_ip = str(intf_ping_target)
                 gw_found = target_ip # Update gw_found so the template prints it correctly if requested
                 print(f"[{host}] Pinging custom target -> {target_ip} for {primary_intf}")
             
             if target_ip:
-                ping_method = options.get("ping_method", "host")
-                if ping_method == "cli":
+                if intf_ping_method == "cli":
                     latency = _ping_via_cli(driver, target_ip, host, interface_name=primary_intf)
                 else:
                     latency = ping_host(target_ip)

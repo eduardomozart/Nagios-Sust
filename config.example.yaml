@@ -28,15 +28,17 @@ rules:
     options:
       url_template: "https://{host}/ng/interface"
       gather_gateway: false # Set to true to scrape the routing table and expose the gateway IP to the Word template
-      ping_target: "8.8.8.8" # Set to "gateway" to ping the gateway, "interface" to ping the interface IP, or a custom IP like "8.8.8.8"
-      ping_method: "cli" # Use "cli" to ping through the Fortigate CLI Console, or "host" to ping from this machine
       diagnose_interfaces:
         - "wan1"
         - "wan2"
         - "internal5|port5" # Use '|' to provide fallbacks for mixed hardware
-      # ping_interfaces:
-      #  - "wan1"
-      #  - "wan2"
+      ping:
+        "default": # Global defaults for all interfaces
+          enabled: true # Ping is disabled by default
+          target: "interface" # Set to "gateway" to ping the gateway, "interface" to ping the interface IP, or a custom IP like "8.8.8.8"
+          method: "host" # Use "cli" to ping through the Fortigate CLI Console, or "host" to ping from this machine
+        "wan1": # Override rules for specific interface
+          target: "gateway"
       # You can override credentials here for this specific rule if needed
       # username: "specific_admin"
       # password: ""
