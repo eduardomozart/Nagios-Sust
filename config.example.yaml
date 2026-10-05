@@ -35,10 +35,10 @@ rules:
       ping:
         "default": # Global defaults for all interfaces
           enabled: true # Ping is disabled by default
-          target: "interface" # Set to "gateway" to ping the gateway, "interface" to ping the interface IP, or a custom IP like "8.8.8.8"
-          method: "host" # Use "cli" to ping through the Fortigate CLI Console, or "host" to ping from this machine
+          target: "8.8.8.8" # Set to "gateway", "interface", "ipsec_endpoint", or custom IP like "8.8.8.8"
+          source: "interface" # Set to "host" (ping from script), "interface", or "ipsec_endpoint" (to bind ping to the IPsec tunnel on FortiOS CLI)
         "wan1": # Override rules for specific interface
-          target: "gateway"
+          source: "ipsec_endpoint"
       # You can override credentials here for this specific rule if needed
       # username: "specific_admin"
       # password: ""
