@@ -1,5 +1,18 @@
+# Source of devices to process: 'nagios_pdf' (default) or 'airwave'
+device_source: "nagios_pdf"
+
 # Note: If providing a full Windows path, use single quotes (e.g., 'C:\path\to\file.pdf') or forward slashes (C:/path/to/file.pdf)
 nagios_report: "report.pdf"
+
+# Global AirWave Configuration (Used when device_source is 'airwave' or by the 'airwave' handler)
+airwave:
+  url: "https://airwave" # AirWave server URL or Hostname / IP (e.g. "https://10.0.0.5")
+  # Filter devices during AirWave enumeration:
+  host_filter:
+    startswith: "SW" # Filter by name prefix (e.g. "SW" or ["SW-CORE", "SW-ACCESS"])
+    # regex: "^(SW|AP)" # Or use regex pattern (e.g. "^(SW|AP)")
+  device_categories: ["switch"] # Filter by category (e.g. switch, thin_ap, controller)
+  models: [] # Optional filter by model (e.g. ["6300M", "5406R"])
 
 credentials:
   # Global credentials used by all handlers. Leave empty to prompt in terminal.
@@ -31,7 +44,16 @@ rules:
       # username: "specific_admin"
       # password: ""
 
-  # 2. Aruba Switches (Auto-detects AOS-CX vs AOS-S / ProCurve)
+  # 2. Aruba AirWave WebUI Monitoring
+  - name: "AirWave Device Monitoring"
+    host_filter:
+      startswith: "SW" # Matches SW-CORE-01, SW-ACCESS-01, AP-01, etc.
+    handler: "airwave" # Connects via pyairwave API and captures WebUI Device Info tab
+    options:
+      # airwave_url: "https://airwave" # Optional override (defaults to global airwave.url)
+      capture_screenshot: true
+
+  # 3. Aruba Switches (Auto-detects AOS-CX vs AOS-S / ProCurve via SSH)
   - name: "Aruba Switch System Info"
     host_filter:
       startswith: "SW" # Matches SW-CORE-01, SW-ACCESS-01, etc.

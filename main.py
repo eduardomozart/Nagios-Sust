@@ -97,6 +97,49 @@ def get_pdf_file_path(default_path):
         
     return file_path
 
+def enumerate_airwave_devices(config, credential_provider):
+    airwave_cfg = config.get("airwave", {})
+    url = airwave_cfg.get("url") or airwave_cfg.get("host") or "https://airwave"
+    
+    username = airwave_cfg.get("username")
+    password = airwave_cfg.get("password")
+    if not username or not password:
+        prov_user, prov_pass = credential_provider()
+        username = username or prov_user
+        password = password or prov_pass
+
+    from utils.airwave import AirWaveClient
+
+    print(f"Connecting to AirWave at {url} to enumerate devices...")
+    try:
+        client = AirWaveClient(url, username, password)
+        host_filter = airwave_cfg.get("host_filter")
+        device_categories = airwave_cfg.get("device_categories")
+        models = airwave_cfg.get("models")
+        
+        devices = client.get_devices(
+            host_filter=host_filter,
+            device_categories=device_categories,
+            models=models
+        )
+        print(f"AirWave API returned {len(devices)} matching devices.")
+        
+        alerts = []
+        for dev in devices:
+            alerts.append({
+                "host": dev["name"],
+                "ip": dev["ip"],
+                "device_id": dev["id"],
+                "model": dev.get("model", ""),
+                "serial": dev.get("serial_number", ""),
+                "device_category": dev.get("device_category", ""),
+                "folder_id": dev.get("folder_id", "")
+            })
+        return alerts
+    except Exception as e:
+        print(f"Error enumerating AirWave devices: {e}")
+        sys.exit(1)
+
 def main():
     config = load_config()
     
@@ -111,24 +154,31 @@ def main():
         _cached_username = global_creds["username"]
     if global_creds.get("password"):
         _cached_password = str(global_creds["password"]) # Cast to string in case of numeric passwords
-        
-    pdf_file_name = config.get("nagios_report", "report.pdf")
-    
-    base_dir = get_base_dir()
-    # os.path.join safely ignores base_dir if pdf_file_name is already an absolute path
-    pdf_default_path = os.path.join(base_dir, pdf_file_name)
-    
-    print(f"Checking for report file: {pdf_file_name}...")
-    pdf_path = get_pdf_file_path(pdf_default_path)
-    
-    print(f"Parsing PDF: {pdf_path}")
-    try:
-        alerts = parse_nagios_pdf(pdf_path)
-    except Exception as e:
-        print(f"Error parsing PDF: {e}")
-        sys.exit(1)
 
-    print(f"Found {len(alerts)} unique hosts in the PDF.")
+    device_source = str(config.get("device_source", "nagios_pdf")).lower()
+    is_airwave_source = "--airwave" in sys.argv or device_source == "airwave"
+
+    if is_airwave_source:
+        print("Device Source: AirWave API Device Enumeration")
+        alerts = enumerate_airwave_devices(config, get_global_credentials)
+    else:
+        pdf_file_name = config.get("nagios_report", "report.pdf")
+        
+        base_dir = get_base_dir()
+        # os.path.join safely ignores base_dir if pdf_file_name is already an absolute path
+        pdf_default_path = os.path.join(base_dir, pdf_file_name)
+        
+        print(f"Checking for report file: {pdf_file_name}...")
+        pdf_path = get_pdf_file_path(pdf_default_path)
+        
+        print(f"Parsing PDF: {pdf_path}")
+        try:
+            alerts = parse_nagios_pdf(pdf_path)
+        except Exception as e:
+            print(f"Error parsing PDF: {e}")
+            sys.exit(1)
+
+        print(f"Found {len(alerts)} unique hosts in the PDF.")
     results = []
 
     for alert in alerts:
@@ -148,6 +198,10 @@ def main():
             options["credential_provider"] = get_global_credentials
             options["execution_timestamp"] = execution_timestamp
             options["base_dir"] = base_dir
+            if "airwave" in config and "airwave_url" not in options:
+                airwave_url = config["airwave"].get("url") or config["airwave"].get("host")
+                if airwave_url:
+                    options["airwave_url"] = airwave_url
             
             try:
                 handler_module = importlib.import_module(f"handlers.{handler_name}")

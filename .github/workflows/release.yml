@@ -25,6 +25,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
+        pip install git+https://github.com/eduardomozart/pyairwave.git
         pip install -r requirements.txt
 
     - name: Check Template Compilation
@@ -58,7 +59,7 @@ jobs:
 
     - name: Build executable
       run: |
-        pyinstaller --onedir --name Nagios-Sust-x64 --hidden-import handlers.fortigate --hidden-import handlers.generic_ping --hidden-import handlers.aruba --hidden-import handlers.arubacx --hidden-import handlers.procurve --hidden-import paramiko --hidden-import exporters.docx_exporter main.py
+        pyinstaller --onedir --name Nagios-Sust-x64 --hidden-import handlers.fortigate --hidden-import handlers.generic_ping --hidden-import handlers.aruba --hidden-import handlers.arubacx --hidden-import handlers.procurve --hidden-import handlers.airwave --hidden-import utils.airwave --hidden-import pyairwave --hidden-import pyairwave.awapi --hidden-import pyairwave.base --hidden-import paramiko --hidden-import exporters.docx_exporter main.py
 
     - name: Prepare Release Package
       run: |

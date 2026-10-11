@@ -75,6 +75,28 @@ The `options` block inside a rule passes configuration to the handler script.
 - `timeout` (int): SSH connection and command execution timeout in seconds. Default: `15`.
 - *Note*: You can use the generic `aruba` handler to automatically probe and detect whether the connected switch is **AOS-CX** or **ProCurve**, which then delegates to the corresponding specialized handler. You can also call `arubacx` or `procurve` directly.
 
+**Specific Options (AirWave Handler):**
+- `airwave_url` (string): Aruba AirWave server URL or Hostname/IP. Default: `https://airwave`.
+- `username` (string): Overrides global credentials for the AirWave connection.
+- `password` (string): Overrides global credentials for the AirWave connection.
+- `capture_screenshot` (boolean): Captures the Device Info viewport adjusted for horizontal scrolling. Default: `true`.
+
+### AirWave Device Enumeration (Standalone or Hybrid)
+Nagios-Sust supports enumerating devices directly from Aruba AirWave API via `pyairwave`:
+- In `config.yaml`, set `device_source: "airwave"` or run from the CLI with `python main.py --airwave`.
+- You can filter enumerated devices before execution using `host_filter` (`startswith` and/or `regex`), `device_categories`, and `models`:
+```yaml
+device_source: "airwave" # Or leave as 'nagios_pdf' for report.pdf mode
+
+airwave:
+  url: "https://airwave"
+  host_filter:
+    startswith: "SW" # e.g. "SW" or ["SW-CORE", "SW-ACCESS"]
+    regex: "^(SW|AP)" # or regex pattern
+  device_categories: ["switch"] # Optional: switch, thin_ap, controller
+  models: [] # Optional: filter by model
+```
+
 ### Multi-Language Exports
 You can generate reports in multiple languages simultaneously! The script will look for `template_<language>.docx` files.
 ```yaml
