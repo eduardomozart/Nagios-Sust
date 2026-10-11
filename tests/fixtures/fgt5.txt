@@ -1,0 +1,23 @@
+<div class="sub-content">
+<div class="wide-inputs ">
+<div class="error-message" id="err_msg" style="">
+  <f-icon class="fa-error"></f-icon>
+  <div class="message-content" id="err_msg_content">Authentication failure</div>
+</div>
+<div class="warning-message" id="warn_msg" style="display: none">
+  <f-icon class="fa-warning"></f-icon>
+  <div class="message-content" id="warn_msg_content"></div>
+</div>
+<input type="text" name="username" id="username" value="" maxlength="64" autocorrect="off" autocapitalize="off" placeholder="Username">
+<div id="credential-fields" class="">
+<input type="password" autocomplete="off" name="secretkey" id="secretkey" placeholder="Password">
+<div id="token_msg" style="display: none; max-height: 300px; overflow: auto;"></div>
+<input type="hidden" name="ftm_push_enabled" id="ftm_push_enabled" value="1"><input type="password" autocomplete="off" name="token_code" placeholder="Token Code" id="token_code" maxlength="128" style="display: none" disabled="">
+</div>
+</div>
+<div id="login-button-container">
+<div class="button-actions wide">
+<button class="primary" name="login_button" id="login_button" type="button" onclick="try_login();">Login</button>
+</div>
+</div>
+</div>

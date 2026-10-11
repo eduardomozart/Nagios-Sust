@@ -1,0 +1,74 @@
+<table class="portgroup portgroup2" ng-if=":FP_REBIND: $ctrl.showInCompactView()" role="presentation">
+    <tbody>
+        <!-- ngIf: :FP_REBIND: (!!$ctrl.showPlaceholderLabel || !!$ctrl.obj.label) --><tr ng-if=":FP_REBIND: (!!$ctrl.showPlaceholderLabel || !!$ctrl.obj.label)" class="ng-scope">
+            <td colspan="3" class="label portgroup">
+                <!-- ngIf: :FP_REBIND: !!$ctrl.obj.label -->
+                <!-- ngIf: :FP_REBIND: !$ctrl.obj.label --><span ng-if=":FP_REBIND: !$ctrl.obj.label" class="ng-scope">&nbsp;</span><!-- end ngIf: :FP_REBIND: !$ctrl.obj.label -->
+            </td>
+        </tr><!-- end ngIf: :FP_REBIND: (!!$ctrl.showPlaceholderLabel || !!$ctrl.obj.label) -->
+        <!-- top row of per-port labels e.g. 1, 3, 5, 7 ... -->
+        <tr>
+            <!-- ngRepeat: portObj in :FP_REBIND: $ctrl.layout[0] --><td ng-repeat="portObj in :FP_REBIND: $ctrl.layout[0]" class="label port ng-binding ng-scope" ng-class=":FP_REBIND: {
+                    disconnected: !$ctrl.faceplate.isPortConnected(portObj),
+                    filtered: $ctrl.faceplate.isPortFiltered(portObj.id),
+                    highlighted: $ctrl.faceplate.isPortHighlighted(portObj.id),
+                    unconfigured: !$ctrl.faceplate.isPortConfigured(portObj)
+                }">
+                DMZ
+            </td><!-- end ngRepeat: portObj in :FP_REBIND: $ctrl.layout[0] --><td ng-repeat="portObj in :FP_REBIND: $ctrl.layout[0]" class="label port ng-binding ng-scope" ng-class=":FP_REBIND: {
+                    disconnected: !$ctrl.faceplate.isPortConnected(portObj),
+                    filtered: $ctrl.faceplate.isPortFiltered(portObj.id),
+                    highlighted: $ctrl.faceplate.isPortHighlighted(portObj.id),
+                    unconfigured: !$ctrl.faceplate.isPortConfigured(portObj)
+                }">
+                WAN1
+            </td><!-- end ngRepeat: portObj in :FP_REBIND: $ctrl.layout[0] --><td ng-repeat="portObj in :FP_REBIND: $ctrl.layout[0]" class="label port ng-binding ng-scope" ng-class=":FP_REBIND: {
+                    disconnected: !$ctrl.faceplate.isPortConnected(portObj),
+                    filtered: $ctrl.faceplate.isPortFiltered(portObj.id),
+                    highlighted: $ctrl.faceplate.isPortHighlighted(portObj.id),
+                    unconfigured: !$ctrl.faceplate.isPortConfigured(portObj)
+                }">
+                WAN2
+            </td><!-- end ngRepeat: portObj in :FP_REBIND: $ctrl.layout[0] -->
+        </tr>
+        <!-- ngRepeat: row in :FP_REBIND: $ctrl.layout --><tr ng-repeat="row in :FP_REBIND: $ctrl.layout" class="ng-scope">
+            <!-- ngRepeat: portObj in :FP_REBIND: row --><td ng-repeat="portObj in :FP_REBIND: row" class="port-icon ng-scope">
+                <!-- ngIf: :FP_REBIND: portObj --><f-faceplate-port ng-if=":FP_REBIND: portObj" ng-class=":FP_REBIND: {
+                        filtered: $ctrl.faceplate.isPortFiltered(portObj.id),
+                        highlighted: $ctrl.faceplate.isPortHighlighted(portObj.id)
+                    }" obj=":FP_REBIND: portObj" f-shared-tip-item-id="dmz" class="ng-scope ng-isolate-scope"><!-- ngIf: :FP_REBIND: !$ctrl.splitPorts --><div ng-if=":FP_REBIND: !$ctrl.splitPorts" port-id="dmz" link="up" fortilink="false" inter-switch-link="false" ng-class="{'highlight-infinite slow': $ctrl.source.highlight }" class="ng-scope">
+    <f-icon ng-class=":FP_REBIND: $ctrl.getIcon($ctrl)" class="ftnt-faceplate-port-rj45-up"></f-icon>
+</div><!-- end ngIf: :FP_REBIND: !$ctrl.splitPorts -->
+<!-- ngIf: :FP_REBIND: $ctrl.splitPorts -->
+</f-faceplate-port><!-- end ngIf: :FP_REBIND: portObj -->
+                <!-- ngIf: :FP_REBIND: !portObj -->
+            </td><!-- end ngRepeat: portObj in :FP_REBIND: row --><td ng-repeat="portObj in :FP_REBIND: row" class="port-icon ng-scope">
+                <!-- ngIf: :FP_REBIND: portObj --><f-faceplate-port ng-if=":FP_REBIND: portObj" ng-class=":FP_REBIND: {
+                        filtered: $ctrl.faceplate.isPortFiltered(portObj.id),
+                        highlighted: $ctrl.faceplate.isPortHighlighted(portObj.id)
+                    }" obj=":FP_REBIND: portObj" f-shared-tip-item-id="wan1" class="ng-scope ng-isolate-scope"><!-- ngIf: :FP_REBIND: !$ctrl.splitPorts --><div ng-if=":FP_REBIND: !$ctrl.splitPorts" port-id="wan1" link="up" fortilink="false" inter-switch-link="false" ng-class="{'highlight-infinite slow': $ctrl.source.highlight }" class="ng-scope">
+    <f-icon ng-class=":FP_REBIND: $ctrl.getIcon($ctrl)" class="ftnt-faceplate-port-rj45-up"></f-icon>
+</div><!-- end ngIf: :FP_REBIND: !$ctrl.splitPorts -->
+<!-- ngIf: :FP_REBIND: $ctrl.splitPorts -->
+</f-faceplate-port><!-- end ngIf: :FP_REBIND: portObj -->
+                <!-- ngIf: :FP_REBIND: !portObj -->
+            </td><!-- end ngRepeat: portObj in :FP_REBIND: row --><td ng-repeat="portObj in :FP_REBIND: row" class="port-icon ng-scope">
+                <!-- ngIf: :FP_REBIND: portObj --><f-faceplate-port ng-if=":FP_REBIND: portObj" ng-class=":FP_REBIND: {
+                        filtered: $ctrl.faceplate.isPortFiltered(portObj.id),
+                        highlighted: $ctrl.faceplate.isPortHighlighted(portObj.id)
+                    }" obj=":FP_REBIND: portObj" f-shared-tip-item-id="wan2" class="ng-scope ng-isolate-scope"><!-- ngIf: :FP_REBIND: !$ctrl.splitPorts --><div ng-if=":FP_REBIND: !$ctrl.splitPorts" port-id="wan2" link="up" fortilink="false" inter-switch-link="false" ng-class="{'highlight-infinite slow': $ctrl.source.highlight }" class="ng-scope">
+    <f-icon ng-class=":FP_REBIND: $ctrl.getIcon($ctrl)" class="ftnt-faceplate-port-rj45-up"></f-icon>
+</div><!-- end ngIf: :FP_REBIND: !$ctrl.splitPorts -->
+<!-- ngIf: :FP_REBIND: $ctrl.splitPorts -->
+</f-faceplate-port><!-- end ngIf: :FP_REBIND: portObj -->
+                <!-- ngIf: :FP_REBIND: !portObj -->
+            </td><!-- end ngRepeat: portObj in :FP_REBIND: row -->
+        </tr><!-- end ngRepeat: row in :FP_REBIND: $ctrl.layout -->
+        <!-- ngRepeat: row in :FP_REBIND: $ctrl.paddingRows track by $index -->
+        <!-- bottom row of per-port labels e.g. 2, 4, 6, 8 ... -->
+        <!-- ngIf: :FP_REBIND: $ctrl.layout.length > 1 -->
+        <!-- ngIf: :FP_REBIND: $ctrl.paddingRows.length -->
+        <!-- bypass label for bridge ports -->
+        <!-- ngIf: :FP_REBIND: $ctrl.obj['tagName'] === 'bridge' -->
+    </tbody>
+</table>
