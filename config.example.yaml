@@ -1,8 +1,12 @@
 # Source of devices to process: 'nagios_pdf' (default) or 'airwave'
 device_source: "nagios_pdf"
 
-# Note: If providing a full Windows path, use single quotes (e.g., 'C:\path\to\file.pdf') or forward slashes (C:/path/to/file.pdf)
-nagios_report: "report.pdf"
+# 1. Nagios PDF Report Source Configuration
+nagios_pdf:
+  # Note: If providing a full Windows path, use single quotes (e.g., 'C:\path\to\file.pdf') or forward slashes (C:/path/to/file.pdf)
+  report_file: "report.pdf"
+  # host_filter:
+  #   startswith: "SW" # Optional filter for PDF hosts
 
 # Global AirWave Configuration (Used when device_source is 'airwave' or by the 'airwave' handler)
 airwave:

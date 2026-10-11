@@ -110,13 +110,22 @@ exporters:
 When defining paths (like the location of your Nagios report) in Windows, backslashes (`\`) can cause issues if placed inside double quotes. 
 
 **Wrong:**
-`nagios_report: "C:\Users\Administrator\Downloads\report.pdf"`
+```yaml
+nagios_pdf:
+  report_file: "C:\Users\Administrator\Downloads\report.pdf"
+```
 
 **Correct (Use single quotes):**
-`nagios_report: 'C:\Users\Administrator\Downloads\report.pdf'`
+```yaml
+nagios_pdf:
+  report_file: 'C:\Users\Administrator\Downloads\report.pdf'
+```
 
 **Correct (Use forward slashes):**
-`nagios_report: "C:/Users/Administrator/Downloads/report.pdf"`
+```yaml
+nagios_pdf:
+  report_file: "C:/Users/Administrator/Downloads/report.pdf"
+```
 
 ## 4. Customizing the Word Template
 You don't need to know Python to change the layout of the final report!

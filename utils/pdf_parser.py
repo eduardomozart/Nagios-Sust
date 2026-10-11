@@ -1,6 +1,14 @@
-import pdfplumber
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
 
 def parse_nagios_pdf(pdf_path):
+    if pdfplumber is None:
+        raise ImportError(
+            "The 'pdfplumber' library is required to parse Nagios PDF reports.\n"
+            "Please install it with: pip install pdfplumber"
+        )
     alerts = []
     
     with pdfplumber.open(pdf_path) as pdf:

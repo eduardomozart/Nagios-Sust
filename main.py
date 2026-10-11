@@ -12,8 +12,6 @@ import yaml
 import importlib
 import getpass
 import re
-from utils.pdf_parser import parse_nagios_pdf
-from utils.dialog import open_file_dialog
 
 # Global credential cache
 _cached_username = None
@@ -79,67 +77,6 @@ def match_rules(host, rules):
                 
     return matched
 
-def get_pdf_file_path(default_path):
-    if os.path.exists(default_path):
-        return default_path
-        
-    print(f"Warning: PDF file '{os.path.basename(default_path)}' not found.")
-    print("Please select the PDF file from the file explorer dialog...")
-    
-    file_path = open_file_dialog(
-        title="Select Nagios Report PDF",
-        file_filter="PDF files (*.pdf)\0*.pdf\0All files (*.*)\0*.*\0\0"
-    )
-    
-    if not file_path:
-        print("No file selected. Exiting.")
-        sys.exit(1)
-        
-    return file_path
-
-def enumerate_airwave_devices(config, credential_provider):
-    airwave_cfg = config.get("airwave", {})
-    url = airwave_cfg.get("url") or airwave_cfg.get("host") or "https://airwave"
-    
-    username = airwave_cfg.get("username")
-    password = airwave_cfg.get("password")
-    if not username or not password:
-        prov_user, prov_pass = credential_provider()
-        username = username or prov_user
-        password = password or prov_pass
-
-    from utils.airwave import AirWaveClient
-
-    print(f"Connecting to AirWave at {url} to enumerate devices...")
-    try:
-        client = AirWaveClient(url, username, password)
-        host_filter = airwave_cfg.get("host_filter")
-        device_categories = airwave_cfg.get("device_categories")
-        models = airwave_cfg.get("models")
-        
-        devices = client.get_devices(
-            host_filter=host_filter,
-            device_categories=device_categories,
-            models=models
-        )
-        print(f"AirWave API returned {len(devices)} matching devices.")
-        
-        alerts = []
-        for dev in devices:
-            alerts.append({
-                "host": dev["name"],
-                "ip": dev["ip"],
-                "device_id": dev["id"],
-                "model": dev.get("model", ""),
-                "serial": dev.get("serial_number", ""),
-                "device_category": dev.get("device_category", ""),
-                "folder_id": dev.get("folder_id", "")
-            })
-        return alerts
-    except Exception as e:
-        print(f"Error enumerating AirWave devices: {e}")
-        sys.exit(1)
-
 def main():
     config = load_config()
     
@@ -155,30 +92,31 @@ def main():
     if global_creds.get("password"):
         _cached_password = str(global_creds["password"]) # Cast to string in case of numeric passwords
 
+    base_dir = get_base_dir()
+
     device_source = str(config.get("device_source", "nagios_pdf")).lower()
-    is_airwave_source = "--airwave" in sys.argv or device_source == "airwave"
+    if "--airwave" in sys.argv:
+        device_source = "airwave"
+    elif "--nagios" in sys.argv or "--pdf" in sys.argv:
+        device_source = "nagios_pdf"
 
-    if is_airwave_source:
-        print("Device Source: AirWave API Device Enumeration")
-        alerts = enumerate_airwave_devices(config, get_global_credentials)
-    else:
-        pdf_file_name = config.get("nagios_report", "report.pdf")
-        
-        base_dir = get_base_dir()
-        # os.path.join safely ignores base_dir if pdf_file_name is already an absolute path
-        pdf_default_path = os.path.join(base_dir, pdf_file_name)
-        
-        print(f"Checking for report file: {pdf_file_name}...")
-        pdf_path = get_pdf_file_path(pdf_default_path)
-        
-        print(f"Parsing PDF: {pdf_path}")
-        try:
-            alerts = parse_nagios_pdf(pdf_path)
-        except Exception as e:
-            print(f"Error parsing PDF: {e}")
-            sys.exit(1)
+    print(f"Device Source: {device_source}")
 
-        print(f"Found {len(alerts)} unique hosts in the PDF.")
+    source_options = {
+        "credential_provider": get_global_credentials,
+        "base_dir": base_dir,
+    }
+
+    try:
+        source_module = importlib.import_module(f"sources.{device_source}")
+        alerts = source_module.get_hosts(config, source_options)
+    except ImportError:
+        print(f"Error: Device source '{device_source}' not found in sources/")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error loading devices from source '{device_source}': {e}")
+        sys.exit(1)
+
     results = []
 
     for alert in alerts:

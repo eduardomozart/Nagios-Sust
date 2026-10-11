@@ -10,12 +10,14 @@ The goal of this tool is to automate evidence collection for alerting hosts iden
 ### 1. Orchestrator (`main.py`)
 The orchestrator drives the entire workflow:
 - Reads `config.yaml`.
-- Parses the Nagios PDF report (prompting via a UI dialog if the file is missing).
+- Dynamically loads the configured device source (`sources.{device_source}`).
 - Iterates over the identified hosts and matches them against user-defined rules.
 - Injects a `credential_provider` callback into matched handlers to decouple CLI/UI prompts from the automation logic.
 
-### 2. PDF Parser (`utils/pdf_parser.py`)
-Relies on `pdfplumber` to extract structured tabular data from the Nagios PDF export. It dynamically finds the header row and cleans up the host strings to prevent duplicate executions for the same equipment.
+### 2. Modular Sources (`sources/`)
+Device and alert discovery is decoupled into pluggable source modules:
+- **Nagios PDF (`sources/nagios_pdf.py`)**: Resolves Nagios Service Status PDF reports (prompting via a native UI dialog via `utils/dialog.py` if the file is missing), parses tabular alerts via `utils/pdf_parser.py`, and applies optional host filtering.
+- **AirWave (`sources/airwave.py`)**: Connects to the Aruba AirWave API via `utils/airwave.py` and `pyairwave`, enumerating devices filtered by `host_filter` (`startswith` / `regex`), device categories, and hardware models.
 
 ### 3. Modular Handlers (`handlers/`)
 Handlers are specific Python scripts designed to interact with different types of equipment. To add a new equipment type (e.g., Cisco, CheckPoint), a developer simply creates a new handler file and maps it in the YAML config.
