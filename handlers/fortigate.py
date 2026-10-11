@@ -14,8 +14,291 @@ import os
 import re
 from utils.network import ip_netmask_to_cidr, ping_host
 
+
+def parse_fortigate_faceplate_ports_html(html_content):
+    """
+    Parses FortiGate faceplate widget HTML (table.portgroup).
+    Returns dict mapping port_id (lowercase) to its link/status/label information.
+    """
+    ports = {}
+    if not html_content:
+        return ports
+
+    labels = re.findall(
+        r'<td[^>]*class=[\'"][^\'"]*label port[^\'"]*[\'"][^>]*>\s*([^<]+?)\s*</td>',
+        html_content,
+        re.IGNORECASE,
+    )
+    port_divs = list(
+        re.finditer(
+            r'<div[^>]+port-id=[\'"]([^\'"]+)[\'"][^>]*>(.*?)</div>',
+            html_content,
+            re.DOTALL | re.IGNORECASE,
+        )
+    )
+    for idx, m in enumerate(port_divs):
+        div_tag = m.group(0)
+        pid = m.group(1).strip()
+        link_m = re.search(r'\blink=[\'"]([^\'"]+)[\'"]', div_tag, re.IGNORECASE)
+        link = link_m.group(1).lower() if link_m else ""
+        inner = m.group(2)
+        icon_m = re.search(r'class=[\'"]([^\'"]*ftnt-[^\'"]*)[\'"]', inner, re.IGNORECASE)
+        icon = icon_m.group(1) if icon_m else ""
+
+        status = "UP" if (link == "up" or "-up" in icon) else ("DOWN" if (link == "down" or "-down" in icon) else "UNKNOWN")
+        ports[pid.lower()] = {
+            "port_id": pid,
+            "link": link,
+            "status": status,
+            "label": labels[idx].strip() if idx < len(labels) else pid,
+        }
+    return ports
+
+
+def parse_fortigate_login_html(html_content):
+    """
+    Parses FortiGate WebUI login HTML to detect form presence and authentication errors.
+    Returns dict:
+      - has_login_form: True if username and secretkey inputs exist
+      - auth_failed: True if err_msg is visible with non-empty content
+      - error_message: text message if auth failed
+    """
+    if not html_content:
+        return {"has_login_form": False, "auth_failed": False, "error_message": ""}
+
+    has_user = bool(re.search(r'id=[\'"]username[\'"]', html_content, re.IGNORECASE))
+    has_pass = bool(re.search(r'id=[\'"]secretkey[\'"]', html_content, re.IGNORECASE))
+
+    err_div = re.search(r'<div[^>]*id=[\'"]err_msg[\'"][^>]*style=[\'"]([^\'"]*)[\'"][^>]*>', html_content, re.IGNORECASE)
+    style = err_div.group(1) if err_div else ""
+    is_displayed = False
+    if err_div:
+        is_displayed = not ("display: none" in style or "display:none" in style)
+
+    err_content_m = re.search(r'id=[\'"]err_msg_content[\'"][^>]*>(.*?)</div>', html_content, re.DOTALL | re.IGNORECASE)
+    err_text = ""
+    if err_content_m:
+        err_text = re.sub(r'<[^>]+>', '', err_content_m.group(1)).strip()
+
+    is_failure = is_displayed and bool(err_text)
+    return {
+        "has_login_form": has_user and has_pass,
+        "auth_failed": is_failure,
+        "error_message": err_text if is_failure else "",
+    }
+
+
+def is_fortigate_table_ready_html(html_content):
+    """
+    Checks if FortiGate interfaces table (modern mutable-table-container or faceplate portgroup) is present.
+    """
+    if not html_content:
+        return False
+    return bool(
+        re.search(r'table\s+class=[\'"][^\'"]*portgroup', html_content, re.IGNORECASE)
+        or re.search(r'class=[\'"][^\'"]*mutable-table-container', html_content, re.IGNORECASE)
+    )
+
+
+def parse_fortigate_interfaces_html(html_content):
+    """
+    Parses FortiGate modern interface table HTML (div.mutable-table-container).
+    Returns dict mapping alias/name to interface dictionary:
+      {'alias': ..., 'name': ..., 'status': 'UP'/'DOWN', 'ip': ..., 'mask': ...}
+    """
+    interfaces = {}
+    if not html_content:
+        return interfaces
+
+    matches = list(re.finditer(r'<div[^>]*\brow-id=[\'"]([^\'"]+)[\'"][^>]*>', html_content, re.IGNORECASE))
+    for idx, m in enumerate(matches):
+        start = m.start()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(html_content)
+        block = html_content[start:end]
+
+        name_cell = re.search(r'column-id=[\'"]name[\'"][^>]*>(.*?)</div>\s*</div>\s*</div>', block, re.DOTALL | re.IGNORECASE)
+        if not name_cell:
+            continue
+        raw_name = re.sub(r'<[^>]+>', ' ', name_cell.group(1)).strip()
+        raw_name = re.sub(r'\s+', ' ', raw_name)
+        if not raw_name:
+            continue
+
+        alias_m = re.search(r'\(([^)]+)\)', raw_name)
+        alias = alias_m.group(1).strip() if alias_m else raw_name
+
+        icon_m = re.search(r'<f-icon[^>]*class=[\'"]([^\'"]*ftnt-[^\'"]*)[\'"]', block, re.IGNORECASE)
+        icon = icon_m.group(1) if icon_m else ""
+        status = "UP" if "-up" in icon else ("DOWN" if "-down" in icon else "UNKNOWN")
+
+        ip_cell = re.search(r'column-id=[\'"]ipv4_addresses[\'"][^>]*>(.*?)</div>\s*</div>\s*</div>', block, re.DOTALL | re.IGNORECASE)
+        raw_ip = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', ip_cell.group(1))).strip() if ip_cell else ""
+
+        ip, mask = "", ""
+        ip_m = re.search(r'(?:^|\b|\D)(\d{1,3}(?:\.\d{1,3}){3}(?:/(?:\d{1,3}(?:\.\d{1,3}){3}|\d{1,2}))?)', raw_ip)
+        if ip_m:
+            ip, mask = ip_netmask_to_cidr(ip_m.group(1))
+
+        entry = {
+            "name": raw_name,
+            "alias": alias,
+            "status": status,
+            "ip": ip,
+            "mask": mask,
+        }
+        interfaces[alias.lower()] = entry
+        if raw_name.lower() != alias.lower():
+            interfaces[raw_name.lower()] = entry
+
+    return interfaces
+
+
+def extract_fortigate_interface_details_html(html_content, interface_name):
+    """
+    Extracts (ip, mask, status) for interface_name from FortiGate HTML
+    (evaluating modern interface table, falling back to faceplate portgroup).
+    Returns (ip, mask, status).
+    """
+    target = interface_name.strip().lower()
+
+    # 1. Check modern interface table
+    interfaces = parse_fortigate_interfaces_html(html_content)
+    if target in interfaces:
+        intf = interfaces[target]
+        return intf["ip"], intf["mask"], intf["status"]
+
+    for key, intf in interfaces.items():
+        if f"({target})" in key or key == target:
+            return intf["ip"], intf["mask"], intf["status"]
+
+    # 2. Check faceplate portgroup
+    faceplate = parse_fortigate_faceplate_ports_html(html_content)
+    if target in faceplate:
+        return "", "", faceplate[target]["status"]
+
+    for pid, pdata in faceplate.items():
+        if pid == target or pid.replace("internal", "") == target or target.replace("internal", "") == pid:
+            return "", "", pdata["status"]
+
+    return "", "", "NOT FOUND"
+
+
+def parse_fortigate_static_routes_html(html_content):
+    """
+    Parses FortiGate Static Routing Table HTML (/ng/routing/static).
+    Returns list of route dicts: [{'dst': ..., 'gateway': ..., 'interface': ...}]
+    """
+    routes = []
+    if not html_content:
+        return routes
+
+    matches = list(re.finditer(r'<div[^>]*\brow-id=[\'"]([^\'"]+)[\'"][^>]*>', html_content, re.IGNORECASE))
+    for idx, m in enumerate(matches):
+        start = m.start()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(html_content)
+        b = html_content[start:end]
+
+        cell_matches = list(re.finditer(r'<div[^>]*\scolumn-id=[\'"]([^\'"]+)[\'"][^>]*>', b, re.IGNORECASE))
+        row_data = {}
+        for c_idx, cm in enumerate(cell_matches):
+            col_name = cm.group(1)
+            c_start = cm.end()
+            c_end = cell_matches[c_idx + 1].start() if c_idx + 1 < len(cell_matches) else len(b)
+            cell_content = b[c_start:c_end]
+            val = re.sub(r'<[^>]+>', ' ', cell_content).strip()
+            val = re.sub(r'\s+', ' ', val)
+            row_data[col_name] = val
+
+        routes.append({
+            "dst": row_data.get("dst", ""),
+            "gateway": row_data.get("gateway", ""),
+            "interface": row_data.get("$intf", ""),
+        })
+    return routes
+
+
+def resolve_fortigate_gateways(routes, diagnose_interfaces, intf_data=None):
+    """
+    Resolves gateway IPs for diagnose_interfaces from parsed static routes using FortiGate priority rules:
+      Priority 1: Default route 0.0.0.0/0
+      Priority 2: Gateway matches interface subnet
+      Priority 3: First route gateway
+    """
+    import ipaddress
+
+    if intf_data is None:
+        intf_data = {}
+
+    gateways = {}
+    routes_by_intf = {p.split('|')[0].strip().lower(): [] for p in diagnose_interfaces}
+
+    for r in routes:
+        dst = r.get("dst", "")
+        gw = r.get("gateway", "")
+        intf_text = r.get("interface", "").lower()
+
+        for p_conf in diagnose_interfaces:
+            p_aliases = [a.strip() for a in p_conf.split('|')]
+            p_primary = p_aliases[0].lower()
+            for alias in p_aliases:
+                alias_lower = alias.lower()
+                if f"({alias_lower})" in intf_text or alias_lower == intf_text or alias_lower in intf_text:
+                    routes_by_intf[p_primary].append((dst, gw))
+                    break
+
+    for intf_primary, r_list in routes_by_intf.items():
+        if not r_list:
+            continue
+
+        # Priority 1: Default route 0.0.0.0/0
+        default_gw = next((gw for dst, gw in r_list if dst == "0.0.0.0/0" and gw), None)
+        if default_gw:
+            gateways[intf_primary] = default_gw
+            continue
+
+        # Priority 2: Gateway matches interface subnet
+        data = intf_data.get(intf_primary)
+        best_gw = None
+        if data and data.get("ip") and data.get("mask"):
+            try:
+                ip_val = data["ip"]
+                mask_val = data["mask"]
+                intf_network = ipaddress.IPv4Network(f"{ip_val}/{mask_val}", strict=False)
+                for dst, gw in r_list:
+                    if not gw:
+                        continue
+                    try:
+                        gw_ip = ipaddress.IPv4Address(gw)
+                        if gw_ip in intf_network:
+                            best_gw = gw
+                            break
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        if best_gw:
+            gateways[intf_primary] = best_gw
+        else:
+            # Priority 3: First route's gateway
+            first_gw = next((gw for dst, gw in r_list if gw), None)
+            if first_gw:
+                gateways[intf_primary] = first_gw
+
+    return gateways
+
+
 def _get_wan_details(driver, interface_name):
     try:
+        # First attempt fast HTML-based extraction from current page source
+        try:
+            page_html = driver.page_source
+            ip, mask, status = extract_fortigate_interface_details_html(page_html, interface_name)
+            if status != "NOT FOUND":
+                return ip, mask, status
+        except Exception:
+            pass
+
         # Restrict search to the Name column to avoid false positives in the 'Members' column
         xpath = f"//*[contains(text(), '({interface_name})') or normalize-space(text())='{interface_name}'][ancestor::div[@column-id='name'] or ancestor::td[contains(@class, 'name') or count(preceding-sibling::td) < 2]]"
         
@@ -263,65 +546,8 @@ def _extract_wan_status(driver, host, options):
             driver.get(f"https://{host}/ng/routing/static")
             time.sleep(3) # Wait for table load
             
-            rows = driver.find_elements(By.XPATH, "//div[contains(concat(' ', normalize-space(@class), ' '), ' row ')]")
-            
-            # Group routes by primary interface lower name
-            routes_by_intf = {p.split('|')[0].strip().lower(): [] for p in diagnose_intfs}
-            
-            for row in rows:
-                try:
-                    dst = row.find_element(By.CSS_SELECTOR, "div[column-id='dst']").text.strip()
-                    gw = row.find_element(By.CSS_SELECTOR, "div[column-id='gateway']").text.strip()
-                    intf_text = row.find_element(By.CSS_SELECTOR, "div[column-id='$intf']").text.strip().lower()
-                    
-                    for p_conf in diagnose_intfs:
-                        p_aliases = [a.strip() for a in p_conf.split('|')]
-                        p_primary = p_aliases[0].lower()
-                        for alias in p_aliases:
-                            if f"({alias.lower()})" in intf_text or alias.lower() == intf_text or alias.lower() in intf_text:
-                                routes_by_intf[p_primary].append((dst, gw))
-                                break
-                except:
-                    continue
-                    
-            import ipaddress
-            
-            for intf_primary, routes in routes_by_intf.items():
-                if not routes:
-                    continue
-                    
-                # Priority 1: Default route 0.0.0.0/0
-                default_gw = next((gw for dst, gw in routes if dst == "0.0.0.0/0" and gw), None)
-                if default_gw:
-                    gateways[intf_primary] = default_gw
-                    continue
-                
-                # Priority 2: Gateway matches the subnet of the interface IP
-                data = intf_data.get(intf_primary)
-                best_gw = None
-                if data and data["ip"] and data["mask"]:
-                    try:
-                        intf_network = ipaddress.IPv4Network(f"{data['ip']}/{data['mask']}", strict=False)
-                        for dst, gw in routes:
-                            if not gw: continue
-                            try:
-                                gw_ip = ipaddress.IPv4Address(gw)
-                                if gw_ip in intf_network:
-                                    best_gw = gw
-                                    break
-                            except:
-                                pass
-                    except:
-                        pass
-                
-                if best_gw:
-                    gateways[intf_primary] = best_gw
-                else:
-                    # Priority 3: Fallback to the first route's gateway we found for this interface
-                    first_gw = next((gw for dst, gw in routes if gw), None)
-                    if first_gw:
-                        gateways[intf_primary] = first_gw
-                        
+            routes = parse_fortigate_static_routes_html(driver.page_source)
+            gateways = resolve_fortigate_gateways(routes, diagnose_intfs, intf_data)
             print(f"[{host}] Extracted gateways: {gateways}")
             
             # Navigate back to interface page
@@ -660,8 +886,8 @@ def handle(host, alert_info, options):
         while time.time() - start_time < 30:
             # Check for authentication failure
             try:
-                err_msg = driver.find_element(By.ID, "err_msg")
-                if err_msg.is_displayed():
+                login_state = parse_fortigate_login_html(driver.page_source)
+                if login_state.get("auth_failed"):
                     raise Exception("Authentication Failed. Skipping device.")
             except Exception as e:
                 if str(e) == "Authentication Failed. Skipping device.":
@@ -669,7 +895,7 @@ def handle(host, alert_info, options):
                 pass
 
             # If the interfaces table has appeared, we are done waiting
-            if driver.find_elements(By.CSS_SELECTOR, "table.portgroup") or driver.find_elements(By.CSS_SELECTOR, "div.mutable-table-container"):
+            if is_fortigate_table_ready_html(driver.page_source) or driver.find_elements(By.CSS_SELECTOR, "table.portgroup") or driver.find_elements(By.CSS_SELECTOR, "div.mutable-table-container"):
                 login_success = True
                 break
                 

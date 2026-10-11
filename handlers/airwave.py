@@ -13,7 +13,11 @@ import os
 import re
 import time
 from datetime import datetime
-from utils.airwave import AirWaveClient, parse_airwave_device_info_html
+from utils.airwave import (
+    AirWaveClient,
+    parse_airwave_device_info_html,
+    parse_airwave_login_html,
+)
 
 # In-memory client cache per server
 _airwave_clients = {}
@@ -34,36 +38,38 @@ def _login_airwave_webui(driver, base_url, username, password, host_label="AirWa
     driver.get(f"{base_url}/")
     time.sleep(2)
 
-    # Check if login dialog is visible
-    login_inputs = driver.find_elements(By.ID, "login-username-id")
-    if login_inputs and login_inputs[0].is_displayed():
-        print(f"[{host_label}] Submitting WebUI credentials at {base_url}...")
-        user_field = login_inputs[0]
-        user_field.clear()
-        user_field.send_keys(username)
+    # Check login page state via HTML parser
+    login_state = parse_airwave_login_html(driver.page_source)
+    if not login_state["has_login_dialog"]:
+        print(f"[{host_label}] WebUI already authenticated or no login form.")
+        return
 
-        pass_field = driver.find_element(By.ID, "login-password-id")
-        pass_field.clear()
-        pass_field.send_keys(password)
+    print(f"[{host_label}] Submitting WebUI credentials at {base_url}...")
+    user_field = driver.find_element(By.ID, "login-username-id")
+    user_field.clear()
+    user_field.send_keys(username)
 
-        login_btn = driver.find_element(By.ID, "login-button")
-        login_btn.click()
+    pass_field = driver.find_element(By.ID, "login-password-id")
+    pass_field.clear()
+    pass_field.send_keys(password)
 
-        # Wait for login to complete or error to appear
-        start_time = time.time()
-        while time.time() - start_time < 20:
-            err_el = driver.find_elements(By.ID, "login-failed")
-            if err_el and err_el[0].is_displayed() and err_el[0].text.strip():
-                raise Exception(f"AirWave WebUI authentication failed: {err_el[0].text.strip()}")
+    login_btn = driver.find_element(By.ID, "login-button")
+    login_btn.click()
 
-            user_check = driver.find_elements(By.ID, "login-username-id")
-            if not user_check or not user_check[0].is_displayed():
-                print(f"[{host_label}] WebUI login successful.")
-                return
+    # Wait for login to complete or error to appear
+    start_time = time.time()
+    while time.time() - start_time < 20:
+        state = parse_airwave_login_html(driver.page_source)
+        if state["login_failed"] and state["error_message"]:
+            raise Exception(f"AirWave WebUI authentication failed: {state['error_message']}")
 
-            time.sleep(1)
+        if state["is_logged_in"]:
+            print(f"[{host_label}] WebUI login successful.")
+            return
 
-        raise Exception("Timeout waiting for AirWave WebUI login to complete.")
+        time.sleep(1)
+
+    raise Exception("Timeout waiting for AirWave WebUI login to complete.")
 
 
 def handle(host, alert_info, options):

@@ -264,6 +264,48 @@ def parse_airwave_device_info_html(html_content, device_name=""):
     return system_info
 
 
+def parse_airwave_login_html(html_content):
+    """
+    Parses AirWave WebUI login page HTML to inspect session and authentication status.
+    Returns dict:
+      - is_logged_in: True if login dialog is absent or hidden (session active)
+      - has_login_dialog: True if login username input field is visible
+      - login_failed: True if failure message is visible and populated
+      - error_message: text of login failure error
+    """
+    if not html_content:
+        return {"is_logged_in": True, "has_login_dialog": False, "login_failed": False, "error_message": ""}
+
+    user_match = re.search(r'<input[^>]*id=[\'"]login-username-id[\'"][^>]*>', html_content, re.IGNORECASE)
+    has_user_input = bool(user_match)
+    user_hidden = False
+    if user_match:
+        tag_str = user_match.group(0)
+        if "display: none" in tag_str or "display:none" in tag_str or 'type="hidden"' in tag_str:
+            user_hidden = True
+
+    has_dialog = has_user_input and not user_hidden
+
+    err_match = re.search(r'<div[^>]*id=[\'"]login-failed[\'"][^>]*>(.*?)</div>', html_content, re.DOTALL | re.IGNORECASE)
+    err_text = ""
+    err_visible = False
+    if err_match:
+        tag_full = err_match.group(0)
+        open_tag = tag_full[:tag_full.find(">") + 1]
+        is_hidden = "display: none" in open_tag or "display:none" in open_tag
+        raw_text = re.sub(r'<[^>]+>', '', err_match.group(1)).strip()
+        if raw_text and not is_hidden:
+            err_text = raw_text
+            err_visible = True
+
+    return {
+        "is_logged_in": not has_dialog and not err_visible,
+        "has_login_dialog": has_dialog,
+        "login_failed": err_visible,
+        "error_message": err_text,
+    }
+
+
 class AirWaveClient:
     """
     Wrapper around pyairwave to enumerate devices and folders from Aruba AirWave API.

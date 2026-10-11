@@ -1,9 +1,10 @@
 import unittest
 from utils.airwave import (
-    filter_device_name,
-    parse_devices_xml,
-    parse_airwave_device_info_html,
     AirWaveClient,
+    filter_device_name,
+    parse_airwave_device_info_html,
+    parse_airwave_login_html,
+    parse_devices_xml,
 )
 
 
@@ -70,7 +71,7 @@ class TestAirWaveIntegration(unittest.TestCase):
 
         # 1. Parse all valid devices
         devices = parse_devices_xml(sample_xml)
-        self.assertEqual(len(devices), 3) # (id:541) should be ignored
+        self.assertEqual(len(devices), 3)  # (id:541) should be ignored
         self.assertEqual(devices[0]["id"], "538")
         self.assertEqual(devices[0]["name"], "SW-CORE-01")
         self.assertEqual(devices[0]["ip"], "192.0.2.11")
@@ -186,7 +187,6 @@ class TestAirWaveIntegration(unittest.TestCase):
             {"id": "539", "name": "SWACCESS01", "ip": "192.0.2.12"},
         ]
 
-        # Use an instance of AirWaveClient with simulated cache
         class MockAirWaveClient(AirWaveClient):
             def __init__(self):
                 self._cached_devices = mock_devices
@@ -211,6 +211,46 @@ class TestAirWaveIntegration(unittest.TestCase):
         # Not found
         dev4 = client.get_device_by_host("NONEXISTENT")
         self.assertIsNone(dev4)
+
+    def test_parse_airwave_login_active_session_html(self):
+        """Tests parsing AirWave WebUI HTML when user session is active (no login dialog)."""
+        active_html = '<div id="header"><span class="user">admin</span></div>'
+        state = parse_airwave_login_html(active_html)
+
+        self.assertTrue(state["is_logged_in"])
+        self.assertFalse(state["has_login_dialog"])
+        self.assertFalse(state["login_failed"])
+        self.assertEqual(state["error_message"], "")
+
+    def test_parse_airwave_login_dialog_html(self):
+        """Tests parsing AirWave WebUI HTML when login dialog is presented."""
+        login_html = """
+        <div id="login-container">
+          <input id="login-username-id" />
+          <input id="login-password-id" type="password" />
+          <button id="login-button">Log In</button>
+        </div>
+        """
+        state = parse_airwave_login_html(login_html)
+
+        self.assertFalse(state["is_logged_in"])
+        self.assertTrue(state["has_login_dialog"])
+        self.assertFalse(state["login_failed"])
+        self.assertEqual(state["error_message"], "")
+
+    def test_parse_airwave_login_failure_error_html(self):
+        """Tests parsing AirWave WebUI HTML when authentication failure is reported."""
+        failed_html = """
+        <div id="login-container">
+          <input id="login-username-id" />
+          <div id="login-failed">Invalid username or password</div>
+        </div>
+        """
+        state = parse_airwave_login_html(failed_html)
+
+        self.assertFalse(state["is_logged_in"])
+        self.assertTrue(state["login_failed"])
+        self.assertEqual(state["error_message"], "Invalid username or password")
 
 
 if __name__ == "__main__":
