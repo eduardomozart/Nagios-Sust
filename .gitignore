@@ -183,3 +183,7 @@ cython_debug/
 # MS Word Temp Files
 ~$*.docx
 ~$*.doc
+
+# macOS
+.DS_Store
+
