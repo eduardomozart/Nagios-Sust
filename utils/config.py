@@ -167,6 +167,14 @@ def validate_config(config, config_path="config.yaml", require_sources=True):
             raise ConfigValidationError(
                 f"Rule '{rule.get('name')}' must specify a 'host_filter' dictionary containing 'startswith' or 'regex'."
             )
+        if "startswith" in host_filter and not isinstance(host_filter["startswith"], str):
+            raise ConfigValidationError(
+                f"Rule '{rule.get('name')}' host_filter 'startswith' must be a string. Use 'regex' for multiple conditions."
+            )
+        if "regex" in host_filter and not isinstance(host_filter["regex"], str):
+            raise ConfigValidationError(
+                f"Rule '{rule.get('name')}' host_filter 'regex' must be a string."
+            )
 
         handler = rule.get("handler")
         if not handler or not isinstance(handler, str):

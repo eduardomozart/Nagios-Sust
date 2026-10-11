@@ -10,26 +10,20 @@ from utils.airwave import (
 
 class TestAirWaveIntegration(unittest.TestCase):
     def test_filter_device_name_startswith(self):
-        """Validates prefix matching for device names (single string and list)."""
-        # Single string
+        """Validates prefix matching for device names (single string)."""
         self.assertTrue(filter_device_name("SW-CORE-01", {"startswith": "SW"}))
         self.assertFalse(filter_device_name("AP-01", {"startswith": "SW"}))
 
-        # List of prefixes
-        self.assertTrue(filter_device_name("SW-CORE-01", {"startswith": ["SW", "AP"]}))
-        self.assertTrue(filter_device_name("AP-01", {"startswith": ["SW", "AP"]}))
-        self.assertFalse(filter_device_name("RT-01", {"startswith": ["SW", "AP"]}))
-
     def test_filter_device_name_regex(self):
-        """Validates regex matching for device names (single string, list, and negative lookaheads)."""
+        """Validates regex matching for device names (single string and alternation)."""
         # Standard regex
         self.assertTrue(filter_device_name("SW-CORE-01", {"regex": "^SW.*01$"}))
         self.assertFalse(filter_device_name("SW-CORE-02", {"regex": "^SW.*01$"}))
 
-        # List of regexes
-        self.assertTrue(filter_device_name("SW-CORE-01", {"regex": ["^SW-CORE", "^AP-LAB"]}))
-        self.assertTrue(filter_device_name("AP-LAB-05", {"regex": ["^SW-CORE", "^AP-LAB"]}))
-        self.assertFalse(filter_device_name("SW-ACCESS-01", {"regex": ["^SW-CORE", "^AP-LAB"]}))
+        # Multiple conditions via regex alternation
+        self.assertTrue(filter_device_name("SW-CORE-01", {"regex": "^(SW-CORE|AP-LAB)"}))
+        self.assertTrue(filter_device_name("AP-LAB-05", {"regex": "^(SW-CORE|AP-LAB)"}))
+        self.assertFalse(filter_device_name("SW-ACCESS-01", {"regex": "^(SW-CORE|AP-LAB)"}))
 
         # Negative lookahead
         self.assertTrue(filter_device_name("SW-CORE-01", {"regex": "^SW(?!DEMO)"}))

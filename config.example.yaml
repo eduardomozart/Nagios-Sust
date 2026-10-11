@@ -1,7 +1,7 @@
 # Device sources to query (can specify one or multiple): 'nagios_pdf', 'airwave'
-device_sources:
-  - "nagios_pdf"
-  # - "airwave"
+# device_sources:
+#   - "nagios_pdf"
+#   - "airwave"
 
 # 1. Nagios PDF Report Source Configuration
 nagios_pdf:
@@ -15,9 +15,9 @@ airwave:
   url: "https://airwave" # AirWave server URL or Hostname / IP (e.g. "https://10.0.0.5")
   # Filter devices during AirWave enumeration:
   host_filter:
-    startswith: "SW" # Filter by name prefix (e.g. "SW" or ["SW-CORE", "SW-ACCESS"])
-    # regex: "^(SW|AP)" # Or use regex pattern (e.g. "^(SW|AP)")
-  device_categories: ["switch"] # Filter by category (e.g. switch, thin_ap, controller)
+    startswith: "SW" # Filter by name prefix (e.g. "SW")
+    # regex: "^(SW|AP)" # Or use regex for multiple conditions (e.g. "^(SW-CORE|SW-ACCESS)")
+  device_categories: [] # Filter by category (e.g. ["switch", "thin_ap", "controller"])
   models: [] # Optional filter by model (e.g. ["6300M", "5406R"])
 
 credentials:

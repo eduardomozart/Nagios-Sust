@@ -10,7 +10,7 @@ except ImportError:
 def filter_device_name(name, host_filter):
     """
     Evaluates whether a device name matches host_filter conditions.
-    Supports startswith (str or list of str) and regex (str or list of str).
+    Supports startswith (str) and regex (str). For multiple conditions, use regex (e.g. "^(SW|AP)").
     """
     if not host_filter:
         return True
@@ -20,23 +20,15 @@ def filter_device_name(name, host_filter):
 
     # 1. startswith filter
     if "startswith" in host_filter:
-        prefix = host_filter["startswith"]
-        if isinstance(prefix, (list, tuple)):
-            if not any(name.startswith(str(p)) for p in prefix):
-                return False
-        else:
-            if not name.startswith(str(prefix)):
-                return False
+        prefix = str(host_filter["startswith"])
+        if not name.startswith(prefix):
+            return False
 
     # 2. regex filter
     if "regex" in host_filter:
-        pattern = host_filter["regex"]
-        if isinstance(pattern, (list, tuple)):
-            if not any(re.search(str(p), name) for p in pattern):
-                return False
-        else:
-            if not re.search(str(pattern), name):
-                return False
+        pattern = str(host_filter["regex"])
+        if not re.search(pattern, name):
+            return False
 
     return True
 

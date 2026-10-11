@@ -98,7 +98,7 @@ nagios_pdf:
 airwave:
   url: "https://airwave"
   host_filter:
-    startswith: "SW" # e.g. "SW" or ["SW-CORE", "SW-ACCESS"]
+    startswith: "SW" # e.g. "SW" (use regex for multiple conditions)
     regex: "^(SW|AP)" # or regex pattern
   device_categories: ["switch"] # Optional: switch, thin_ap, controller
   models: [] # Optional: filter by model

@@ -209,6 +209,66 @@ class TestConfig(unittest.TestCase):
             resolve_includes(root_data, self.test_dir)
         self.assertIn("Included configuration file 'non_existent_file.yaml' not found", str(ctx.exception))
 
+    def test_match_rules_single_string_and_regex_alternation(self):
+        """Verifies match_rules supports startswith string and regex alternation."""
+        from main import match_rules
+
+        rules = [
+            {
+                "name": "PrefixRule",
+                "host_filter": {"startswith": "SW-CORE"},
+                "handler": "aruba",
+            },
+            {
+                "name": "RegexAlternationRule",
+                "host_filter": {"regex": r"^(SW-ACCESS|AP-\d+)"},
+                "handler": "generic_ping",
+            },
+        ]
+
+        # Single prefix startswith
+        self.assertEqual(len(match_rules("SW-CORE-01", rules)), 1)
+        self.assertEqual(match_rules("SW-CORE-01", rules)[0]["name"], "PrefixRule")
+
+        # Regex alternation matching multiple conditions
+        self.assertEqual(len(match_rules("SW-ACCESS-02", rules)), 1)
+        self.assertEqual(match_rules("SW-ACCESS-02", rules)[0]["name"], "RegexAlternationRule")
+        self.assertEqual(len(match_rules("AP-101", rules)), 1)
+        self.assertEqual(match_rules("AP-101", rules)[0]["name"], "RegexAlternationRule")
+
+        # Non-matching host
+        self.assertEqual(len(match_rules("ROUTER-01", rules)), 0)
+
+    def test_validate_config_rejects_list_for_startswith_or_regex(self):
+        """Verifies validate_config rejects non-string startswith or regex."""
+        # startswith as list should fail
+        cfg_list_startswith = {
+            "rules": [
+                {
+                    "name": "BadRule",
+                    "host_filter": {"startswith": ["SW-01", "SW-02"]},
+                    "handler": "aruba",
+                }
+            ]
+        }
+        with self.assertRaises(ConfigValidationError) as ctx:
+            validate_config(cfg_list_startswith)
+        self.assertIn("host_filter 'startswith' must be a string", str(ctx.exception))
+
+        # regex as list should fail
+        cfg_list_regex = {
+            "rules": [
+                {
+                    "name": "BadRule",
+                    "host_filter": {"regex": ["^SW", "^AP"]},
+                    "handler": "aruba",
+                }
+            ]
+        }
+        with self.assertRaises(ConfigValidationError) as ctx:
+            validate_config(cfg_list_regex)
+        self.assertIn("host_filter 'regex' must be a string", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
