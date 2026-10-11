@@ -83,7 +83,7 @@ def _diagnose_template_error(template_path):
 
 def export(results, config):
     base_output_file = config.get("output_file", "Evidence_Report.docx")
-    languages = config.get("languages") or config.get("language", ["en"])
+    languages = config.get("languages", ["en"])
     
     # Normalize to list to support both string and array formats in config
     if isinstance(languages, str):

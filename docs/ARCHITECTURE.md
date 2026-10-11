@@ -7,19 +7,28 @@ The goal of this tool is to automate evidence collection for alerting hosts iden
 
 ## Key Components
 
-### 1. Orchestrator (`main.py`)
-The orchestrator drives the entire workflow:
-- Reads `config.yaml`.
-- Dynamically loads the configured device source (`sources.{device_source}`).
-- Iterates over the identified hosts and matches them against user-defined rules.
+### 1. Configuration Engine & Validation (`utils/config.py`)
+Configuration loading and validation is centralized in `utils/config.py`:
+- **CLI Selection (`-c` / `--config`)**: Supports executing any specified configuration file (defaulting to `config.yaml`).
+- **Modular Includes (`include:`)**: Allows breaking configuration into reusable modules (e.g. `include: ["sources.yaml", "rules.yaml"]` or globs `include: "conf.d/*.yaml"`). Recursively resolves includes with circular reference detection and deep dictionary merging.
+- **Strict Schema Validation**: Validates YAML syntax and checks structure (verifying sources exist in `sources/`, handlers exist, rules have filters, exporters specify `languages`). Rejects deprecated keys like `device_source` and exporter `language`.
+
+### 2. Orchestrator (`main.py`)
+The orchestrator drives the execution flow:
+- Parses CLI parameters (`-c` / `--config`) via `argparse`.
+- Invokes `utils/config.load_config`.
+- Delegates host aggregation across configured `device_sources` to `sources.load_unique_hosts` (or prompts for device names/sources interactively if omitted and not specified via `-d`).
+- Iterates over the deduplicated host collection and matches each host against user-defined rules.
 - Injects a `credential_provider` callback into matched handlers to decouple CLI/UI prompts from the automation logic.
 
-### 2. Modular Sources (`sources/`)
+### 3. Modular Sources & Multi-Source Aggregation (`sources/`)
 Device and alert discovery is decoupled into pluggable source modules:
 - **Nagios PDF (`sources/nagios_pdf.py`)**: Resolves Nagios Service Status PDF reports (prompting via a native UI dialog via `utils/dialog.py` if the file is missing), parses tabular alerts via `utils/pdf_parser.py`, and applies optional host filtering.
 - **AirWave (`sources/airwave.py`)**: Connects to the Aruba AirWave API via `utils/airwave.py` and `pyairwave`, enumerating devices filtered by `host_filter` (`startswith` / `regex`), device categories, and hardware models.
 
-### 3. Modular Handlers (`handlers/`)
+When multiple sources are configured (e.g. `device_sources: ["nagios_pdf", "airwave"]`), `sources.load_unique_hosts` queries each source and canonicalizes host records (case-insensitively). Overlapping devices are merged into a single unique host object enriched with metadata from all matching sources (e.g., combining alert state from Nagios with IP/device ID from AirWave) and tracking source provenance in `item["sources"]`.
+
+### 4. Modular Handlers (`handlers/`)
 Handlers are specific Python scripts designed to interact with different types of equipment. To add a new equipment type (e.g., Cisco, CheckPoint), a developer simply creates a new handler file and maps it in the YAML config.
 
 - **FortiGate (`fortigate.py`)**: Uses `selenium` to log into the FortiOS web interface. It parses the DOM for the `login_button` and dynamically queries the `portgroup` table to extract the link status of `WAN1` and `WAN2`. It saves a visual screenshot of the interface as evidence and scrapes the Dashboard System Information widget into a normalized `res.system_info` structure.

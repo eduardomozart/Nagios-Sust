@@ -1,7 +1,10 @@
 import os
 import sys
 import glob
-import yaml
+try:
+    import yaml
+except ImportError:
+    yaml = None
 import importlib
 
 class ConfigValidationError(Exception):
@@ -22,8 +25,16 @@ def deep_merge(base, override):
             if isinstance(result[k], dict) and isinstance(v, dict):
                 result[k] = deep_merge(result[k], v)
             elif isinstance(result[k], list) and isinstance(v, list):
-                # Concatenate list items
-                result[k] = result[k] + v
+                if k == "device_sources":
+                    seen = set()
+                    merged_list = []
+                    for item in result[k] + v:
+                        if item not in seen:
+                            seen.add(item)
+                            merged_list.append(item)
+                    result[k] = merged_list
+                else:
+                    result[k] = result[k] + v
             else:
                 result[k] = v
         else:
@@ -80,6 +91,9 @@ def resolve_includes(data, config_dir, visited_files=None):
         if not os.path.exists(canonical_path):
             raise ConfigValidationError(f"Included file does not exist: '{file_path}'")
 
+        if yaml is None:
+            raise ConfigValidationError("PyYAML is not installed. Please install PyYAML to load YAML configurations.")
+
         try:
             with open(canonical_path, "r", encoding="utf-8") as f:
                 inc_data = yaml.safe_load(f) or {}
@@ -98,38 +112,40 @@ def resolve_includes(data, config_dir, visited_files=None):
     return deep_merge(merged_included, data)
 
 
-def validate_config(config, config_path="config.yaml"):
+def validate_config(config, config_path="config.yaml", require_sources=True):
     """
     Validates semantic structure and types of the configuration dictionary.
     """
     if not isinstance(config, dict):
         raise ConfigValidationError(f"Configuration file '{config_path}' must contain a YAML mapping (dictionary).")
 
-    # 1. Validate device_sources
-    if "device_sources" not in config:
+    # Reject deprecated keys
+    if "device_source" in config:
         raise ConfigValidationError(
-            f"Configuration in '{config_path}' is missing required field 'device_sources'.\n"
-            "Example:\n"
+            f"'device_source' in '{config_path}' is no longer supported. "
+            f"Please use 'device_sources' as a list of sources instead, e.g.:\n"
             "device_sources:\n"
             "  - 'nagios_pdf'\n"
             "  - 'airwave'"
         )
 
-    sources = config["device_sources"]
-    if not isinstance(sources, list) or len(sources) == 0:
-        raise ConfigValidationError(f"'device_sources' in '{config_path}' must be a non-empty list of source names.")
+    # 1. Validate device_sources (optional; interactive prompt triggers if omitted)
+    if "device_sources" in config:
+        sources = config["device_sources"]
+        if not isinstance(sources, list) or len(sources) == 0:
+            raise ConfigValidationError(f"'device_sources' in '{config_path}' must be a non-empty list of source names.")
 
-    for src in sources:
-        if not isinstance(src, str) or not src.strip():
-            raise ConfigValidationError(f"Invalid entry in 'device_sources': {src}. Each source must be a non-empty string.")
-        src_name = src.strip().lower()
-        try:
-            importlib.import_module(f"sources.{src_name}")
-        except ImportError:
-            raise ConfigValidationError(
-                f"Unknown device source '{src_name}' in 'device_sources'.\n"
-                f"Make sure a corresponding module 'sources/{src_name}.py' exists."
-            )
+        for src in sources:
+            if not isinstance(src, str) or not src.strip():
+                raise ConfigValidationError(f"Invalid entry in 'device_sources': {src}. Each source must be a non-empty string.")
+            src_name = src.strip().lower()
+            try:
+                importlib.import_module(f"sources.{src_name}")
+            except ImportError:
+                raise ConfigValidationError(
+                    f"Unknown device source '{src_name}' in 'device_sources'.\n"
+                    f"Make sure a corresponding module 'sources/{src_name}.py' exists."
+                )
 
     # 2. Validate rules
     if "rules" not in config:
@@ -167,6 +183,11 @@ def validate_config(config, config_path="config.yaml"):
                 raise ConfigValidationError(f"Exporter at index {i} must be a dictionary.")
             if not exp.get("type") or not isinstance(exp.get("type"), str):
                 raise ConfigValidationError(f"Exporter at index {i} is missing a valid 'type' string.")
+            if "language" in exp:
+                raise ConfigValidationError(
+                    f"Exporter at index {i} in '{config_path}' uses deprecated 'language'. "
+                    f"Please use 'languages' as a list instead, e.g. languages: ['en', 'pt-BR']."
+                )
 
     # 4. Validate source-specific blocks if present
     if "nagios_pdf" in config and not isinstance(config["nagios_pdf"], dict):
@@ -179,7 +200,7 @@ def validate_config(config, config_path="config.yaml"):
         raise ConfigValidationError(f"'credentials' in '{config_path}' must be a dictionary.")
 
 
-def load_config(config_file="config.yaml", base_dir=None):
+def load_config(config_file="config.yaml", base_dir=None, require_sources=True):
     """
     Loads, parses, resolves includes, and validates a configuration file.
     """
@@ -187,7 +208,10 @@ def load_config(config_file="config.yaml", base_dir=None):
         base_dir = os.getcwd()
 
     if not os.path.isabs(config_file):
-        config_path = os.path.join(base_dir, config_file)
+        if os.path.exists(config_file):
+            config_path = os.path.abspath(config_file)
+        else:
+            config_path = os.path.join(base_dir, config_file)
     else:
         config_path = config_file
 
@@ -195,6 +219,10 @@ def load_config(config_file="config.yaml", base_dir=None):
         print(f"Error: Configuration file '{config_file}' not found.")
         print(f"Resolved path: '{config_path}'")
         print("Please verify the file path or provide a valid file with -c / --config.")
+        sys.exit(1)
+
+    if yaml is None:
+        print("[!] Error: PyYAML is not installed. Please install PyYAML to load YAML configurations.")
         sys.exit(1)
 
     try:
@@ -213,7 +241,7 @@ def load_config(config_file="config.yaml", base_dir=None):
 
     try:
         merged_config = resolve_includes(raw_data, config_dir, visited)
-        validate_config(merged_config, config_file)
+        validate_config(merged_config, config_file, require_sources=require_sources)
     except ConfigValidationError as err:
         print(f"\n[!] Configuration Validation Error in '{config_file}':")
         print(f"    {err}\n")

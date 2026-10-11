@@ -1,5 +1,7 @@
-# Source of devices to process: 'nagios_pdf' (default) or 'airwave'
-device_source: "nagios_pdf"
+# Device sources to query (can specify one or multiple): 'nagios_pdf', 'airwave'
+device_sources:
+  - "nagios_pdf"
+  # - "airwave"
 
 # 1. Nagios PDF Report Source Configuration
 nagios_pdf:
@@ -8,7 +10,7 @@ nagios_pdf:
   # host_filter:
   #   startswith: "SW" # Optional filter for PDF hosts
 
-# Global AirWave Configuration (Used when device_source is 'airwave' or by the 'airwave' handler)
+# Global AirWave Configuration (Used when 'airwave' is in device_sources or by the 'airwave' handler)
 airwave:
   url: "https://airwave" # AirWave server URL or Hostname / IP (e.g. "https://10.0.0.5")
   # Filter devices during AirWave enumeration:
@@ -102,5 +104,10 @@ rules:
 
 exporters:
   - type: "docx"
-    language: ["pt-BR", "en"] # Generates one report per language
+    languages: ["pt-BR", "en"] # Generates one report per language
     output_file: "Evidence_Report.docx"
+
+# Include additional configuration files (single file, list of files, or glob patterns):
+# include:
+#   - "conf.d/*.yaml"
+#   - "credentials.secret.yaml"

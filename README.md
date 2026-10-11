@@ -46,12 +46,39 @@ If you wish to modify the code, develop new handlers, or run the tool directly f
    cp config.example.yaml config.yaml
    cp template_pt-BR.example.docx template_pt-BR.docx
    ```
-2. Place your Nagios export (`report.pdf`) in the project root, or select it via the UI prompt.
+2. Place your Nagios export (`report.pdf`) in the project root, or configure device sources (`nagios_pdf`, `airwave`) in your config.
 3. Run the orchestrator:
    ```bash
    python main.py
    ```
-4. The generated report will be saved as `Evidence_Report.docx` (or the equivalent language suffix specified in your config).
+
+### Supported Arguments
+
+| Argument | Short | Required | Description |
+| :--- | :---: | :---: | :--- |
+| `--config` | `-c` | No | Path to YAML configuration file. (Default: `config.yaml`) |
+| `--device` | `-d` | No | Device hostname to process directly. Can be passed multiple times (e.g. `-d SW-01 -d SW-02`) or comma-separated (`-d SW-01,SW-02`). Bypasses `device_sources`. |
+| `--version` | `-v` | No | Show program's version number and exit. |
+| `--help` | `-h` | No | Show help message and exit. |
+
+### Examples
+
+Run with a custom configuration file:
+```bash
+python main.py -c custom_config.yaml
+```
+
+Run directly for specific devices (bypassing `device_sources`):
+```bash
+python main.py -d SW-CORE-01 -d SW-ACCESS-01
+```
+
+Using the compiled Windows executable:
+```powershell
+.\Nagios-Sust-x64.exe -d SW-CORE-01,SW-ACCESS-01
+```
+
+4. The generated report will be saved as `Evidence_Report.docx` (or with language suffixes like `Evidence_Report_pt-BR.docx` if multiple languages are configured in `exporters`).
 
 ## Documentation
 - 📖 **[User Guide](docs/USER_GUIDE.md)**: Start here to learn how to configure rules, use RegEx matching, generate multi-language reports, and customize the Word template conditional blocks.

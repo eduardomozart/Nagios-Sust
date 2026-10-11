@@ -1,5 +1,11 @@
 import sys
 import os
+import argparse
+import importlib
+import getpass
+import re
+
+from utils.config import load_config
 
 VERSION = "DEV_BUILD"
 
@@ -7,11 +13,6 @@ VERSION = "DEV_BUILD"
 print("========================================")
 print(f" Nagios-Sust {VERSION} ")
 print("========================================\n")
-
-import yaml
-import importlib
-import getpass
-import re
 
 # Global credential cache
 _cached_username = None
@@ -33,25 +34,29 @@ def get_base_dir():
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
-def load_config(config_file="config.yaml"):
-    base_dir = get_base_dir()
-    config_path = os.path.join(base_dir, config_file)
-    
-    if not os.path.exists(config_path):
-        print(f"Error: Configuration file '{config_file}' not found.")
-        print(f"Please rename 'config.example.yaml' to '{config_file}' and set up your rules.")
-        sys.exit(1)
-        
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
-    except yaml.YAMLError as exc:
-        print(f"\n[!] Error parsing '{config_file}'!")
-        print("    If you are using Windows paths (like C:\\Users\\...), make sure to:")
-        print("    1. Use forward slashes (e.g., C:/Users/...) OR")
-        print("    2. Use single quotes ('C:\\Users\\...') instead of double quotes.")
-        print(f"\nDetailed YAML Error:\n{exc}")
-        sys.exit(1)
+def parse_args():
+    if "/?" in sys.argv:
+        sys.argv[sys.argv.index("/?")] = "-h"
+
+    parser = argparse.ArgumentParser(description=f"Nagios-Sust {VERSION} - Evidence Collector")
+    parser.add_argument(
+        "-c", "--config",
+        default="config.yaml",
+        help="Path to YAML configuration file (default: config.yaml)"
+    )
+    parser.add_argument(
+        "-d", "--device", "--devices",
+        action="append",
+        dest="devices",
+        help="Device hostname to process. Can be specified multiple times (e.g. -d SW-01 -d SW-02). Bypasses device_sources."
+    )
+    parser.add_argument(
+        "-v", "--version",
+        action="version",
+        version=f"Nagios-Sust {VERSION}",
+        help="Show program's version number and exit."
+    )
+    return parser.parse_args()
 
 def match_rules(host, rules):
     matched = []
@@ -77,13 +82,89 @@ def match_rules(host, rules):
                 
     return matched
 
+from sources import load_unique_hosts, get_supported_sources
+
+def prompt_for_devices(config, source_options):
+    """
+    Called when 'device_sources' is not set in config and no -d devices were provided via CLI.
+    Displays supported sources and allows setting device names or picking a source.
+    """
+    supported = get_supported_sources()
+    print("Notice: 'device_sources' is not set in your configuration.")
+    print("Supported device sources:")
+    for src in supported:
+        print(f"  - {src}")
+    print()
+
+    while True:
+        try:
+            user_input = input("Enter source(s) or device name(s) (comma-separated, e.g. 'SW-01, SW-02'): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.")
+            sys.exit(0)
+
+        if not user_input:
+            print("Error: No devices or source provided. Please try again.\n")
+            continue
+
+        # Parse tokens, trimming leading/trailing whitespace and optional quotes
+        tokens = [t.strip().strip("\"'") for t in user_input.split(",") if t.strip().strip("\"'")]
+
+        if not tokens:
+            print("Error: No valid input provided. Please try again.\n")
+            continue
+
+        matched_sources = [t for t in tokens if t.lower() in supported]
+        matched_devices = [t for t in tokens if t.lower() not in supported]
+
+        # Check for invalid mixture of sources and device names
+        if matched_sources and matched_devices:
+            print(
+                f"\n[!] Error: Cannot mix source names ({', '.join(matched_sources)}) "
+                f"and device names ({', '.join(matched_devices)}) in the same input."
+            )
+            print("    Please enter either source name(s) OR device name(s).\n")
+            continue
+
+        # Check if all tokens are supported source names (e.g. "airwave", "nagios_pdf, airwave")
+        if matched_sources:
+            chosen_sources = []
+            for t in tokens:
+                src = t.lower()
+                if src not in chosen_sources:
+                    chosen_sources.append(src)
+            print(f"\nUsing source(s): {', '.join(chosen_sources)}...")
+            config["device_sources"] = chosen_sources
+            return load_unique_hosts(config, source_options)
+
+        # Otherwise, parse device list similar to -d
+        device_names = []
+        for d in tokens:
+            if d not in device_names:
+                device_names.append(d)
+
+        print(f"\nUsing device list ({len(device_names)} host(s)): {', '.join(device_names)}\n")
+        return [{"host": d, "sources": ["interactive"]} for d in device_names]
+
 def main():
-    config = load_config()
-    
+    args = parse_args()
+    base_dir = get_base_dir()
+
+    # Parse devices provided via CLI if any
+    cli_devices = []
+    if args.devices:
+        for item in args.devices:
+            for d in str(item).split(","):
+                clean = d.strip().strip("\"'")
+                if clean and clean not in cli_devices:
+                    cli_devices.append(clean)
+
+    config = load_config(args.config, base_dir=base_dir)
+
     # Generate an execution timestamp to group all screenshots from this run
     from datetime import datetime
     execution_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # Pre-load global credentials from config if specified
     global _cached_username, _cached_password
     global_creds = config.get("credentials", {})
@@ -92,39 +173,27 @@ def main():
     if global_creds.get("password"):
         _cached_password = str(global_creds["password"]) # Cast to string in case of numeric passwords
 
-    base_dir = get_base_dir()
-
-    device_source = str(config.get("device_source", "nagios_pdf")).lower()
-    if "--airwave" in sys.argv:
-        device_source = "airwave"
-    elif "--nagios" in sys.argv or "--pdf" in sys.argv:
-        device_source = "nagios_pdf"
-
-    print(f"Device Source: {device_source}")
-
     source_options = {
         "credential_provider": get_global_credentials,
         "base_dir": base_dir,
     }
 
-    try:
-        source_module = importlib.import_module(f"sources.{device_source}")
-        alerts = source_module.get_hosts(config, source_options)
-    except ImportError:
-        print(f"Error: Device source '{device_source}' not found in sources/")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error loading devices from source '{device_source}': {e}")
-        sys.exit(1)
+    if cli_devices:
+        print(f"Device list provided via command line ({len(cli_devices)} host(s)): {', '.join(cli_devices)}")
+        print("Bypassing 'device_sources' and evaluating rules directly for specified devices.\n")
+        hosts = [{"host": d, "sources": ["cli"]} for d in cli_devices]
+    elif config.get("device_sources"):
+        hosts = load_unique_hosts(config, source_options)
+    else:
+        hosts = prompt_for_devices(config, source_options)
 
     results = []
 
-    for alert in alerts:
-        host = alert["host"]
+    for host_data in hosts:
+        host = host_data["host"]
         matched_rules = match_rules(host, config.get("rules", []))
         
         if not matched_rules:
-            # print(f"[{host}] No rules matched.")
             continue
             
         for rule in matched_rules:
@@ -143,7 +212,7 @@ def main():
             
             try:
                 handler_module = importlib.import_module(f"handlers.{handler_name}")
-                result = handler_module.handle(host, alert, options)
+                result = handler_module.handle(host, host_data, options)
                 
                 # Inject the rule name and handler into the result so it can be used in exporters/templates
                 if isinstance(result, dict):

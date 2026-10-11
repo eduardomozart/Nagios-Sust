@@ -7,7 +7,20 @@ def get_hosts(config, options=None):
     Ingests network devices directly from Aruba AirWave API via pyairwave.
     """
     airwave_cfg = config.get("airwave", {})
-    url = airwave_cfg.get("url") or airwave_cfg.get("host") or "https://airwave"
+    url = airwave_cfg.get("url") or airwave_cfg.get("host")
+    if not url:
+        default_url = "https://airwave"
+        try:
+            entered_url = input(f"Enter AirWave Server URL or IP [{default_url}]: ").strip()
+            url = entered_url if entered_url else default_url
+        except (EOFError, KeyboardInterrupt):
+            url = default_url
+
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = f"https://{url}"
+
+    # Cache back to config so subsequent handlers can reuse it
+    config.setdefault("airwave", {})["url"] = url
 
     username = airwave_cfg.get("username")
     password = airwave_cfg.get("password")

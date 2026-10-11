@@ -81,12 +81,19 @@ The `options` block inside a rule passes configuration to the handler script.
 - `password` (string): Overrides global credentials for the AirWave connection.
 - `capture_screenshot` (boolean): Captures the Device Info viewport adjusted for horizontal scrolling. Default: `true`.
 
-### AirWave Device Enumeration (Standalone or Hybrid)
-Nagios-Sust supports enumerating devices directly from Aruba AirWave API via `pyairwave`:
-- In `config.yaml`, set `device_source: "airwave"` or run from the CLI with `python main.py --airwave`.
-- You can filter enumerated devices before execution using `host_filter` (`startswith` and/or `regex`), `device_categories`, and `models`:
+### Device Sources & Multi-Source Enumeration
+Nagios-Sust supports multiple device discovery sources under `device_sources`:
+- **`nagios_pdf`**: Reads and parses Nagios Service Status PDF reports.
+- **`airwave`**: Connects to the Aruba AirWave API via `pyairwave` to enumerate network devices.
+
+You can specify one or multiple sources simultaneously. When multiple sources are specified, hosts are deduplicated by name and their metadata is merged:
 ```yaml
-device_source: "airwave" # Or leave as 'nagios_pdf' for report.pdf mode
+device_sources:
+  - "nagios_pdf"
+  - "airwave"
+
+nagios_pdf:
+  report_file: "report.pdf"
 
 airwave:
   url: "https://airwave"
@@ -97,12 +104,41 @@ airwave:
   models: [] # Optional: filter by model
 ```
 
+> [!NOTE]
+> If `device_sources` is omitted from your configuration and no `-d` flags are passed on the CLI, the program will display the list of supported device sources and prompt you in the terminal to enter device names (comma-separated, similar to `-d`) or select a source name.
+
+### CLI Config Option (`-c` / `--config`)
+You can specify a custom configuration file path when running the script:
+```bash
+python main.py -c /path/to/custom_config.yaml
+```
+
+### CLI Device Specification (`-d` / `--device`)
+Instead of enumerating devices from `device_sources`, you can directly pass one or multiple target devices via the command line:
+```bash
+python main.py -d SW-CORE-01 -d SW-ACCESS-01
+```
+Or with comma-separated values:
+```bash
+python main.py -d SW-CORE-01,SW-ACCESS-01
+```
+When `-d` / `--device` is specified, `device_sources` is bypassed and the orchestrator directly evaluates your rules and handlers on the specified device list.
+
+### Modular Configuration (`include:`)
+Configurations can include other configuration files using `include:` with single files, lists of files, or glob patterns:
+```yaml
+include:
+  - "conf.d/*.yaml"
+  - "credentials.secret.yaml"
+```
+Included files are deep-merged, with parent settings taking precedence and list items concatenated (and `device_sources` automatically deduplicated). Circular includes are safely detected and rejected.
+
 ### Multi-Language Exports
 You can generate reports in multiple languages simultaneously! The script will look for `template_<language>.docx` files.
 ```yaml
 exporters:
   - type: "docx"
-    language: ["pt-BR", "en"] # Will generate one report per language
+    languages: ["pt-BR", "en"] # Will generate one report per language
     output_file: "Evidence_Report.docx"
 ```
 
