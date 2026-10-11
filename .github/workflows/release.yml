@@ -48,13 +48,17 @@ jobs:
             sys.exit(1)
         "
 
+    - name: Run Unit Tests
+      run: |
+        python -m unittest discover -s tests -p "test_*.py"
+
     - name: Inject Version
       run: |
         (Get-Content main.py) -replace 'VERSION = "DEV_BUILD"', "VERSION = `"${{ github.ref_name }}`"" | Set-Content main.py
 
     - name: Build executable
       run: |
-        pyinstaller --onedir --name Nagios-Sust-x64 --hidden-import handlers.fortigate --hidden-import exporters.docx_exporter main.py
+        pyinstaller --onedir --name Nagios-Sust-x64 --hidden-import handlers.fortigate --hidden-import handlers.generic_ping --hidden-import handlers.aruba --hidden-import handlers.arubacx --hidden-import handlers.procurve --hidden-import paramiko --hidden-import exporters.docx_exporter main.py
 
     - name: Prepare Release Package
       run: |
@@ -65,6 +69,7 @@ jobs:
         copy config.example.yaml release_package\Nagios-Sust-x64\
         copy template_en.example.docx release_package\Nagios-Sust-x64\
         copy template_pt-BR.example.docx release_package\Nagios-Sust-x64\
+
         # Create final zip containing the folder contents directly
         Compress-Archive -Path release_package\Nagios-Sust-x64\* -DestinationPath Nagios-Sust-win-x64.zip
 

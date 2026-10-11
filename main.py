@@ -153,9 +153,10 @@ def main():
                 handler_module = importlib.import_module(f"handlers.{handler_name}")
                 result = handler_module.handle(host, alert, options)
                 
-                # Inject the rule name into the result so it can be used in exporters/templates
+                # Inject the rule name and handler into the result so it can be used in exporters/templates
                 if isinstance(result, dict):
                     result["rule_name"] = rule["name"]
+                    result["handler"] = handler_name
                     
                 results.append(result)
             except ImportError:

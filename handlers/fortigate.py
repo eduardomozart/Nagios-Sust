@@ -1,7 +1,13 @@
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+try:
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+except ImportError:
+    webdriver = None
+    By = None
+    WebDriverWait = None
+    EC = None
 from datetime import datetime
 import time
 import os
@@ -91,10 +97,23 @@ def _ping_via_cli(driver, target_ip, host, interface_name=None):
         text = "\n".join([r.text for r in rows])
         initial_count = text.count("packet loss")
         
-        # Send command
-        actions = ActionChains(driver)
+        # Send interface option if specified
         if interface_name:
+            actions = ActionChains(driver)
             actions.send_keys(f"execute ping-options interface {interface_name}\n")
+            actions.perform()
+            time.sleep(1)
+            rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
+            text = "\n".join([r.text for r in rows])
+            if "Command fail" in text or "Return code" in text:
+                print(f"[{host}] CLI interface option '{interface_name}' failed: Command fail. Resetting ping options.")
+                reset_act = ActionChains(driver)
+                reset_act.send_keys("execute ping-options reset\n")
+                reset_act.perform()
+                return ""
+
+        # Send ping command
+        actions = ActionChains(driver)
         actions.send_keys(f"execute ping {target_ip}\n")
         actions.perform()
         
@@ -106,6 +125,10 @@ def _ping_via_cli(driver, target_ip, host, interface_name=None):
             current_count = text.count("packet loss")
             
             if current_count > initial_count:
+                # Always reset ping options after test
+                reset_act = ActionChains(driver)
+                reset_act.send_keys("execute ping-options reset\n")
+                reset_act.perform()
                 # Extract latency
                 matches = re.findall(r"min/avg/max.*?=\s*[\d\.]+/([\d\.]+)/[\d\.]+", text)
                 if matches:
@@ -115,6 +138,10 @@ def _ping_via_cli(driver, target_ip, host, interface_name=None):
                     print(f"[{host}] CLI Ping failed or 100% loss")
                     return ""
                     
+        # Reset ping options on timeout
+        reset_act = ActionChains(driver)
+        reset_act.send_keys("execute ping-options reset\n")
+        reset_act.perform()
         print(f"[{host}] CLI Ping timed out after 15 seconds")
         return ""
     except Exception as e:
@@ -380,8 +407,8 @@ def _extract_wan_status(driver, host, options):
                     target_ip = tunnel_data["remote-gw"]
                     print(f"[{host}] IPsec tunnel '{tunnel_name}' for {primary_intf} detected. Pinging endpoint -> {target_ip}")
                 else:
-                    print(f"[{host}] No IPsec tunnel found for {primary_intf}, falling back to gateway -> {gw_found}")
-                    target_ip = gw_found if gw_found else ip
+                    print(f"[{host}] IPsec tunnel for {primary_intf} not found. Skipping ping (fail and continue).")
+                    target_ip = None
             elif str(intf_ping_target).lower() == "interface":
                 target_ip = ip
                 print(f"[{host}] Pinging {primary_intf} interface IP -> {target_ip}")
@@ -405,7 +432,11 @@ def _extract_wan_status(driver, host, options):
                         if tunnel_data:
                             ping_intf_name = tunnel_data["name"]
                             print(f"[{host}] Sourcing ping from IPsec tunnel '{ping_intf_name}'")
-                    latency = _ping_via_cli(driver, target_ip, host, interface_name=ping_intf_name)
+                        else:
+                            print(f"[{host}] IPsec tunnel for {primary_intf} not found to source ping. Skipping ping (fail and continue).")
+                            target_ip = None
+                    if target_ip:
+                        latency = _ping_via_cli(driver, target_ip, host, interface_name=ping_intf_name)
         
         wan_status[key] = {
             "status": status_clean,
@@ -418,6 +449,147 @@ def _extract_wan_status(driver, host, options):
         }
 
     return wan_status
+
+def parse_fortigate_system_info_html(html_content):
+    """
+    Parses FortiOS System Information widget HTML into a standardized dictionary.
+    Extracts Serial Number, Firmware (e.g. v7.4.11), Uptime, Hostname, etc.
+    """
+    system_info = {
+        "hostname": "",
+        "os_type": "FortiOS",
+        "model": "FortiGate",
+        "serial_number": "",
+        "version": "",
+        "raw_version": "",
+        "uptime": "",
+        "cpu_util": "",
+        "memory_usage": "",
+        "mode": "",
+        "system_time": "",
+        "wan_ip": "",
+        "members": []
+    }
+    
+    tr_matches = re.findall(r'<tr[^>]*>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>', html_content, re.DOTALL | re.IGNORECASE)
+    for k_html, v_html in tr_matches:
+        k = re.sub(r'<[^>]+>', '', k_html).strip().lower()
+        v = re.sub(r'<[^>]+>', '', v_html).strip()
+        v = re.sub(r'\s+', ' ', v).strip()
+        
+        if "hostname" in k:
+            system_info["hostname"] = v
+        elif "serial number" in k:
+            system_info["serial_number"] = v
+        elif "firmware" in k:
+            system_info["raw_version"] = v
+            m = re.search(r'(v\d+(?:\.\d+)+)', v)
+            system_info["version"] = m.group(1) if m else v
+        elif "uptime" in k:
+            system_info["uptime"] = v
+        elif "mode" in k:
+            system_info["mode"] = v
+        elif "system time" in k:
+            system_info["system_time"] = v
+        elif "wan ip" in k:
+            system_info["wan_ip"] = v
+
+    return system_info
+
+def _extract_system_info(driver, host, options):
+    """
+    Navigates to FortiOS Dashboard if necessary and scrapes the System Information widget.
+    Falls back to CLI 'get system status' if widget DOM is not available.
+    """
+    dashboard_url = options.get("dashboard_url", "https://{host}/ng/dashboard").format(host=host)
+    print(f"[{host}] Fetching System Information from dashboard...")
+    try:
+        # Navigate to dashboard if not already there
+        if "/ng/dashboard" not in driver.current_url:
+            driver.get(dashboard_url)
+            time.sleep(3)
+
+        # Wait for system information widget
+        widget_elements = driver.find_elements(By.CSS_SELECTOR, "fos-dashboard-system-information-widget")
+        if not widget_elements:
+            for _ in range(5):
+                time.sleep(1)
+                widget_elements = driver.find_elements(By.CSS_SELECTOR, "fos-dashboard-system-information-widget")
+                if widget_elements:
+                    break
+
+        if widget_elements:
+            widget_html = widget_elements[0].get_attribute("outerHTML")
+            return parse_fortigate_system_info_html(widget_html)
+            
+        # Fallback: look for key-value table directly
+        tables = driver.find_elements(By.CSS_SELECTOR, "table.nu-table-key-value")
+        for tbl in tables:
+            tbl_html = tbl.get_attribute("outerHTML")
+            if "serial number" in tbl_html.lower() or "firmware" in tbl_html.lower():
+                return parse_fortigate_system_info_html(tbl_html)
+                
+    except Exception as e:
+        print(f"[{host}] Web UI System Information extraction error: {e}")
+
+    # Fallback to CLI
+    try:
+        from selenium.webdriver.common.action_chains import ActionChains
+        print(f"[{host}] Attempting CLI fallback for System Information...")
+        term = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows")
+        if not term:
+            btn = driver.find_elements(By.XPATH, "//nu-icon[@data-nu-icon='fa-solid__terminal']/ancestor::button")
+            if btn:
+                btn[0].click()
+                time.sleep(4)
+        actions = ActionChains(driver)
+        actions.send_keys("get system status\n")
+        actions.perform()
+        time.sleep(3)
+        rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
+        cli_text = "\n".join([r.text for r in rows])
+        
+        serial_m = re.search(r'Serial-Number:\s*([^\s\n]+)', cli_text)
+        ver_m = re.search(r'Version:\s*(.+)', cli_text)
+        
+        system_info = {
+            "hostname": "",
+            "os_type": "FortiOS",
+            "model": "FortiGate",
+            "serial_number": serial_m.group(1).strip() if serial_m else "",
+            "version": "",
+            "raw_version": ver_m.group(1).strip() if ver_m else "",
+            "uptime": "",
+            "cpu_util": "",
+            "memory_usage": "",
+            "mode": "",
+            "system_time": "",
+            "wan_ip": "",
+            "members": []
+        }
+        if system_info["raw_version"]:
+            m = re.search(r'(v\d+(?:\.\d+)+)', system_info["raw_version"])
+            if m:
+                system_info["version"] = m.group(1)
+        return system_info
+    except Exception as e:
+        print(f"[{host}] CLI fallback for System Information failed: {e}")
+
+    return {
+        "hostname": "",
+        "os_type": "FortiOS",
+        "model": "FortiGate",
+        "serial_number": "",
+        "version": "",
+        "raw_version": "",
+        "uptime": "",
+        "cpu_util": "",
+        "memory_usage": "",
+        "mode": "",
+        "system_time": "",
+        "wan_ip": "",
+        "members": []
+    }
 
 def handle(host, alert_info, options):
     url = options.get("url_template", "https://{host}/ng/interface").format(host=host)
@@ -450,6 +622,7 @@ def handle(host, alert_info, options):
         "host": host,
         "url": url,
         "wan_status": {},
+        "system_info": {},
         "screenshot_path": None,
         "error": None
     }
@@ -543,6 +716,12 @@ def handle(host, alert_info, options):
 
         # 4. Extract Interface status and run latency checks
         result["wan_status"] = _extract_wan_status(driver, host, options)
+        
+        # 5. Extract System Information (if enabled)
+        if options.get("gather_system_info", True):
+            result["system_info"] = _extract_system_info(driver, host, options)
+            if result["system_info"]:
+                print(f"[{host}] System info: S/N={result['system_info'].get('serial_number')}, Version={result['system_info'].get('version')}, Uptime={result['system_info'].get('uptime')}")
         
         # Populate universal latencies array for exporters
         latencies = []

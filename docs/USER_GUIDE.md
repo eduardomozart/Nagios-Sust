@@ -60,6 +60,7 @@ The `options` block inside a rule passes configuration to the handler script.
 
 **Specific Options (FortiGate Handler):**
 - `url_template` (string): Overrides the default FortiGate interface URL. Default: `https://{host}/ng/interface`
+- `gather_system_info` (boolean): Scrapes the System Information widget on `/ng/dashboard` to retrieve Serial Number, Firmware (e.g. `v7.4.11`), and Uptime. Default: `true`.
 - `diagnose_interfaces` (list): Which interfaces to extract physical status (UP/DOWN) and IP/Mask for. You can use a pipe `|` to provide fallbacks for mixed hardware (e.g. `"internal5|port5"`). Default: `["wan1", "wan2"]`
 - `gather_gateway` (boolean): If `true`, the script parses `https://{host}/ng/routing/static` to export the Gateway IP to the Word template. Default: `false`
 - `ping` (dictionary): Unified configuration block for ping execution overrides. You can specify a `"default"` block for global rules and interface names for specific rules. By default, ping is **disabled** for all interfaces. If enabled, it targets the local `"interface"` and uses the `"host"` execution source. 
@@ -68,6 +69,11 @@ The `options` block inside a rule passes configuration to the handler script.
   - `source` (string): Defines where the ping originates from. Set to `"host"` to ping locally from the machine running the script. Set to `"interface"` to run `execute ping` natively in the FortiOS CLI bound to the physical interface. Set to `"ipsec_endpoint"` to bind the FortiOS CLI ping to the logical IPsec tunnel interface. Default: `"host"`.
 - `username` (string): Overrides the global credentials with a rule-specific username.
 - `password` (string): Overrides the global credentials with a rule-specific password.
+
+**Specific Options (Aruba Handlers):**
+- `port` (int): SSH port for the switch connection. Default: `22`.
+- `timeout` (int): SSH connection and command execution timeout in seconds. Default: `15`.
+- *Note*: You can use the generic `aruba` handler to automatically probe and detect whether the connected switch is **AOS-CX** or **ProCurve**, which then delegates to the corresponding specialized handler. You can also call `arubacx` or `procurve` directly.
 
 ### Multi-Language Exports
 You can generate reports in multiple languages simultaneously! The script will look for `template_<language>.docx` files.
@@ -82,23 +88,44 @@ exporters:
 When defining paths (like the location of your Nagios report) in Windows, backslashes (`\`) can cause issues if placed inside double quotes. 
 
 **Wrong:**
-`nagios_report: "C:\Users\eduardo\Downloads\report.pdf"`
+`nagios_report: "C:\Users\Administrator\Downloads\report.pdf"`
 
 **Correct (Use single quotes):**
-`nagios_report: 'C:\Users\eduardo\Downloads\report.pdf'`
+`nagios_report: 'C:\Users\Administrator\Downloads\report.pdf'`
 
 **Correct (Use forward slashes):**
-`nagios_report: "C:/Users/eduardo/Downloads/report.pdf"`
+`nagios_report: "C:/Users/Administrator/Downloads/report.pdf"`
 
 ## 4. Customizing the Word Template
 You don't need to know Python to change the layout of the final report!
 Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Microsoft Word, rename it to remove the `.example` part, and modify it as you please. You can change fonts, colors, add company logos, or change the table layout. 
 
 ### Available Template Variables (All Handlers):
-- `{{ res.host }}`: The equipment name
-- `{{ res.rule_name }}`: The name of the rule that was matched (e.g., "Generic FortiGate Rule")
+- `{{ res.host }}`: The equipment name (e.g. `SW-CORE-01`, `FGT-CORE-01`)
+- `{{ res.rule_name }}`: The name of the rule that was matched (e.g., "Aruba Switch System Info")
+- `{{ res.handler }}`: The handler executed for this entry (e.g. `fortigate`, `aruba`, `generic_ping`)
 - `{{ res.latency }}`: The worst ping latency across all valid links in ms (empty if unreachable)
 - `{{ res.screenshot }}`: The injected screenshot
+
+### Universal System Information Tags (`res.system_info`):
+All hardware handlers (`fortigate`, `aruba`, `arubacx`, `procurve`) populate a standardized `res.system_info` object without duplicating fields at the root of `res`. You can use these safe, generic tags in your Word templates across all device types:
+
+- `{{ res.system_info.hostname }}`: The detected hostname
+- `{{ res.system_info.os_type }}`: Operating system (`FortiOS`, `AOS-CX`, or `AOS-S`)
+- `{{ res.system_info.model }}`: Hardware or chassis model (e.g. `R0X24C 6405 v2 Chassis`, `ProCurve Switch`, `FortiGate`)
+- `{{ res.system_info.serial_number }}`: Chassis or device serial number
+- `{{ res.system_info.version }}`: Firmware/Software version (e.g. `v7.4.11`, `FL.10.16.1020`, `WC.16.11.0027`)
+- `{{ res.system_info.uptime }}`: Uptime string (e.g. `2h 19m 51s`, `38 weeks, 22 hours, 53 minutes`, `93 days`)
+- `{{ res.system_info.cpu_util }}`: CPU utilization percentage (e.g. `18`, `39`)
+- `{{ res.system_info.memory_usage }}`: Memory utilization percentage (e.g. `15`, `36.8`)
+- `{{ res.system_info.members }}`: List of VSF stack members (for stacked switches)
+
+**Universal System Info Template Example (Works for any equipment):**
+```text
+{%p if res.system_info %}
+{% if res.system_info.model %}Model: {{ res.system_info.model }} | {% endif %}{% if res.system_info.serial_number %}S/N: {{ res.system_info.serial_number }} | {% endif %}{% if res.system_info.version %}Version: {{ res.system_info.version }} | {% endif %}{% if res.system_info.uptime %}Uptime: {{ res.system_info.uptime }}{% endif %}{% if res.system_info.cpu_util %} | CPU: {{ res.system_info.cpu_util }}%{% endif %}{% if res.system_info.memory_usage %} | Mem: {{ res.system_info.memory_usage }}%{% endif %}
+{%p endif %}
+```
 
 ### Available Template Variables (FortiGate Handler):
 The `wan_status` object is a dictionary containing interface details. You can iterate over it using `{%p for intf_key, intf_data in res.wan_status.items() %}`.
@@ -113,7 +140,7 @@ Each `intf_data` contains the following properties:
 - `{{ intf_data.latency }}`: The ping latency in ms (empty if unreachable or not requested)
 
 ### Available Template Variables (Generic Ping Handler):
-- No extra variables natively exported (only the global `res.latency` is populated)
+- Population of global `res.latency` and `res.screenshot`.
 
 You can even use conditional logic directly in Word to show specific text depending on the equipment type or the presence of an error. 
 

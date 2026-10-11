@@ -18,17 +18,27 @@ The orchestrator drives the entire workflow:
 Relies on `pdfplumber` to extract structured tabular data from the Nagios PDF export. It dynamically finds the header row and cleans up the host strings to prevent duplicate executions for the same equipment.
 
 ### 3. Modular Handlers (`handlers/`)
-Handlers are specific Python scripts designed to interact with different types of equipment.
-- **FortiGate (`fortigate.py`)**: Uses `selenium` to log into the FortiOS web interface. It parses the DOM for the `login_button` and dynamically queries the `portgroup` table to extract the link status of `WAN1` and `WAN2`. It saves a visual screenshot of the interface as evidence.
-- *Extensibility*: To add a new equipment type (e.g., Cisco, CheckPoint), a developer simply creates a new handler file and maps it in the YAML config.
+Handlers are specific Python scripts designed to interact with different types of equipment. To add a new equipment type (e.g., Cisco, CheckPoint), a developer simply creates a new handler file and maps it in the YAML config.
+
+- **FortiGate (`fortigate.py`)**: Uses `selenium` to log into the FortiOS web interface. It parses the DOM for the `login_button` and dynamically queries the `portgroup` table to extract the link status of `WAN1` and `WAN2`. It saves a visual screenshot of the interface as evidence and scrapes the Dashboard System Information widget into a normalized `res.system_info` structure.
+- **Aruba Switches (`aruba.py`)**: Connects over SSH via `paramiko` and inspects `show system` output to automatically detect whether the device is running **AOS-CX** or **ProCurve**, then delegates execution to the corresponding handler (`arubacx.py` or `procurve.py`), which can also be invoked directly. Both extract model, firmware version, serial number, uptime, CPU utilization, and calculate memory usage percentages (including VSF stack members) into `res.system_info`.
+- **Generic Ping (`generic_ping.py`)**: Provides a standalone ping and CMD screenshot evidence collector, and exposes `execute_generic_ping` as a reusable helper for any handler requiring network latency checks.
 
 ### 4. Modular Exporters (`exporters/`)
 Once all handlers have finished executing, the gathered evidence and screenshots are passed to the exporters.
-- **Docx Exporter (`docx_exporter.py`)**: 
-  - **Design Choice**: Instead of hardcoding document styles using `python-docx`, we use `docxtpl` (Word + Jinja2 syntax). 
-  - **Why?**: This allows the end-user to freely modify `template.docx` using Microsoft Word (changing fonts, adding company logos, adjusting layout) without ever touching the Python source code. The script simply injects the data into the `{{ variable }}` tags.
+- **Docx Exporter (`docx_exporter.py`)**: Injects collected evidence and screenshots into the Word template and saves the final report.
 
 ### 5. Build and Distribution
 To simplify deployment for users without a Python environment, the application is compiled into a standalone Windows executable.
 - **PyInstaller**: Used to package the code.
 - **GitHub Actions (`.github/workflows/release.yml`)**: Automates the build process. When a git tag is pushed, it compiles the `.exe` and packages it alongside `config.yaml` and `template.docx` into a release `.zip` artifact.
+
+## Key Design Choices
+
+### Standardized `res.system_info` Schema
+Device metadata is strictly housed inside `res.system_info` (`hostname`, `os_type`, `model`, `serial_number`, `version`, `uptime`, `cpu_util`, `memory_usage`), preventing root-level field pollution and enabling generic, hardware-agnostic Jinja2 tags in Word templates.
+- **Hardware-Agnostic Reporting**: Templates can render standard system inventory tables (firmware, serial number, uptime, CPU/memory utilization) without needing vendor-specific conditional tags.
+- **Namespace Cleanliness**: Root-level dictionary keys are reserved for handler-specific operational evidence (e.g., WAN link statuses, IPsec tunnel states, CLI ping captures), eliminating key collisions across different handler implementations.
+
+### Decoupled Document Templating (`docxtpl`)
+Instead of hardcoding document styles using `python-docx`, the reporting engine uses `docxtpl` (Word + Jinja2 syntax). This allows end-users to freely modify `template.docx` using Microsoft Word (changing fonts, adding company logos, adjusting layout) without ever touching the Python source code. The script simply injects the data into the `{{ variable }}` tags.

@@ -7,26 +7,14 @@ credentials:
   password: ""
 
 rules:
-  # Example of using regex for host matching
-  # - name: "FortiGate Custom Regex"
-  #   host_filter:
-  #     regex: "^(FGTDEMO|SWDEMO)"
-  #   handler: "fortigate"
-  #   options: {}
-
-  # Example of using regex to EXCLUDE a specific host (Negative Lookahead)
-  # - name: "All FortiGates EXCEPT FGTDEMO01"
-  #   host_filter:
-  #     regex: "^FGT(?!DEMO01$)"
-  #   handler: "fortigate"
-  #   options: {}
-  
+  # 1. FortiGate Firewalls
   - name: "FortiGate"
     host_filter:
-      startswith: "FGT"
+      startswith: "FGT" # e.g. FGT-CORE-01
     handler: "fortigate"
     options:
       url_template: "https://{host}/ng/interface"
+      gather_system_info: true # Scrapes Serial Number, Firmware (e.g. v7.4.11), and Uptime from Dashboard
       gather_gateway: false # Set to true to scrape the routing table and expose the gateway IP to the Word template
       diagnose_interfaces:
         - "wan1"
@@ -37,25 +25,56 @@ rules:
           enabled: true # Ping is disabled by default
           target: "8.8.8.8" # Set to "gateway", "interface", "ipsec_endpoint", or custom IP like "8.8.8.8"
           source: "interface" # Set to "host" (ping from script), "interface", or "ipsec_endpoint" (to bind ping to the IPsec tunnel on FortiOS CLI)
-        "wan1": # Override rules for specific interface
-          source: "ipsec_endpoint"
+        "wan1": # Interface-specific override
+          source: "ipsec_endpoint" # If tunnel is not found, fails cleanly and continues
       # You can override credentials here for this specific rule if needed
       # username: "specific_admin"
       # password: ""
 
-  - name: "Switch"
+  # 2. Aruba Switches (Auto-detects AOS-CX vs AOS-S / ProCurve)
+  - name: "Aruba Switch System Info"
     host_filter:
-      startswith: "SW" # Match switches or servers
-    handler: "generic_ping"
-    options: {}
+      startswith: "SW" # Matches SW-CORE-01, SW-ACCESS-01, etc.
+    handler: "aruba" # Connects via SSH, auto-detects AOS-CX vs AOS-S, and parses system info
+    options:
+      port: 22
+      timeout: 15
 
-  - name: "Access Point"
+  # 3. Dedicated Rule: Switch Ping & CMD Screenshot
+  # Because rules execute in order, switches matching both 'SW' rules will collect system info AND ping evidence!
+  - name: "Switch Ping Check"
     host_filter:
-      startswith: "AP" # Match switches or servers
+      regex: "^(SW|AP)" # Matches SW-CORE-01, SW-ACCESS-01, AP-01, etc.
     handler: "generic_ping"
-    options: {}
+    options:
+      capture_screenshot: true
+
+  # 4. Explicit AOS-CX or ProCurve Handler Examples (Optional aliases)
+  # - name: "Core Switch (AOS-CX)"
+  #   host_filter:
+  #     startswith: "SW-CORE"
+  #   handler: "arubacx"
+  #   options:
+  #     port: 22
+  #     timeout: 15
+  #
+  # - name: "Access Switch (ProCurve)"
+  #   host_filter:
+  #     startswith: "SW-ACCESS"
+  #   handler: "procurve"
+  #   options:
+  #     port: 22
+  #     timeout: 15
+
+  # 5. Access Points / Generic Equipment
+  # - name: "Access Point"
+  #  host_filter:
+  #    startswith: "AP"
+  #  handler: "generic_ping"
+  #  options:
+  #    capture_screenshot: true
 
 exporters:
   - type: "docx"
-    language: ["pt-BR", "en"] # Will generate one report per language
+    language: ["pt-BR", "en"] # Generates one report per language
     output_file: "Evidence_Report.docx"
