@@ -1,4 +1,5 @@
 from utils.ssh import run_ssh_command, classify_ssh_error
+from utils.error_codes import ERR_AUTOMATION_FAILED
 import handlers.arubacx as arubacx_handler
 import handlers.procurve as procurve_handler
 
@@ -68,8 +69,11 @@ def handle(host, alert, options, pre_collected_output=None):
         elif detected_type == "procurve":
             return procurve_handler.handle(host, alert, options, pre_collected_output=raw_output)
         else:
-            print(f"[{host}] Unrecognized Aruba device type. Falling back to ProCurve handler.")
-            return procurve_handler.handle(host, alert, options, pre_collected_output=raw_output)
+            print(f"[{host}] Unrecognized Aruba device type. Aborting execution.")
+            return {
+                "host": host,
+                "error": ERR_AUTOMATION_FAILED,
+            }
 
     except Exception as e:
         print(f"[{host}] Aruba dispatcher execution error: {e}")

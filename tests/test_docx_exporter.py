@@ -52,7 +52,6 @@ class TestDocxExporter(unittest.TestCase):
                 "host": {"name": "SW-CORE-01"},
                 "rules": ["Core Switches"],
                 "handlers": {
-                    "list": ["generic_ping"],
                     "generic_ping": {
                         "latency": 12,
                         "error": 0,
@@ -80,7 +79,8 @@ class TestDocxExporter(unittest.TestCase):
         # Verify pure 4 domains
         self.assertEqual(item["host"]["name"], "SW-CORE-01")
         self.assertEqual(item["rules"], ["Core Switches"])
-        self.assertEqual(item["handlers"]["list"], ["generic_ping"])
+        self.assertIn("generic_ping", item["handlers"])
+        self.assertNotIn("list", item["handlers"])
         self.assertEqual(item["handlers"]["generic_ping"]["latency"], 12)
         self.assertEqual(item["sources"]["list"], ["nagios_pdf", "airwave"])
         self.assertEqual(item["sources"]["nagios_pdf"], {"status": "CRITICAL", "service": "PING"})
@@ -119,7 +119,6 @@ class TestDocxExporter(unittest.TestCase):
                 "host": {"name": "RT-01"},
                 "rules": ["Check Router"],
                 "handlers": {
-                    "list": ["airwave"],
                     "airwave": {
                         "error": 0,
                         "screenshot": {

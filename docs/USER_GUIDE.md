@@ -73,7 +73,7 @@ The `options` block inside a rule passes configuration to the handler script.
 **Specific Options (Aruba Handlers):**
 - `port` (int): SSH port for the switch connection. Default: `22`.
 - `timeout` (int): SSH connection and command execution timeout in seconds. Default: `15`.
-- *Note*: You can use the generic `aruba` handler to automatically probe and detect whether the connected switch is **AOS-CX** or **ProCurve**, which then delegates to the corresponding specialized handler. You can also call `arubacx` or `procurve` directly.
+- *Note*: You can use the generic `aruba` handler to automatically probe and detect whether the connected switch is **AOS-CX** or **ProCurve**, which then delegates to the corresponding specialized handler. You can also call `arubacx` or `procurve` directly. When configured as `handler: "aruba"`, the orchestrator stores all collected evidence under `res.handlers.aruba` (e.g. `res.handlers.aruba.system_info`), matching the rule's handler name.
 
 **Specific Options (AirWave Handler):**
 - `airwave_url` (string): Aruba AirWave server URL or Hostname/IP. Default: `https://airwave`.
@@ -180,7 +180,6 @@ Nagios-Sust structures all collected evidence into 4 distinct architectural doma
     "Core Switches Telemetry"
   ],
   "handlers": {
-    "list": ["generic_ping", "aruba"],
     "generic_ping": {
       "error": 0,
       "latency": 15,
@@ -232,10 +231,11 @@ Nagios-Sust structures all collected evidence into 4 distinct architectural doma
    - Iterate over rules: `{%p for rule in res.rules %}`
 
 3. **`res.handlers` (Execution Evidence)**:
-   - `{{ res.handlers.list }}`: List of handlers executed for this host (e.g. `["generic_ping", "fortigate"]`).
-   - **`res.handlers.<HANDLER>`**: Isolated evidence namespace for each executed handler:
+   - Pure dictionary mapping executed handler names to their evidence dictionaries (e.g. `res.handlers.generic_ping`, `res.handlers.aruba`, `res.handlers.fortigate`).
+   - Dynamically iterate over handlers: `{%p for handler_name, handler_data in res.handlers.items() %}`
+   - **`res.handlers.<HANDLER>`**: Isolated evidence namespace for each executed handler, matching the rule's `handler` name (e.g. `res.handlers.aruba` when using `handler: "aruba"`):
      - `{{ res.handlers.<HANDLER>.error }}`: Standard integer error code (`0` for success, non-zero for faults).
-     - `{{ res.handlers.<HANDLER>.latency }}`: Worst ping latency integer in ms (only present when the handler pings the device).
+     - `{{ res.handlers.<HANDLER>.latency }}`: Ping latency integer in ms (`>= 0` on success, `-3` on timeout; only present on handlers that ping the device itself like `generic_ping`).
      - `{{ res.handlers.<HANDLER>.system_info }}`: Hardware and OS telemetry dictionary (only present when scraped or parsed by the handler):
        - `{{ res.handlers.<HANDLER>.system_info.hostname }}`: Detected hostname
        - `{{ res.handlers.<HANDLER>.system_info.os_type }}`: Operating system (`FortiOS`, `AOS-CX`, or `AOS-S`)
@@ -252,7 +252,7 @@ Nagios-Sust structures all collected evidence into 4 distinct architectural doma
        - `{{ intf_data.ip }}`: Interface IP address
        - `{{ intf_data.mask }}`: CIDR subnet mask
        - `{{ intf_data.gw }}`: Gateway IP address
-       - `{{ intf_data.latency }}`: Interface ping latency in ms
+       - `{{ intf_data.latency }}`: Interface ping latency in ms (`>= 0` on success, or negative error code on failure: `-1` for link DOWN, `-2` for logical DOWN 0.0.0.0, `-3` for ping timeout).
      - `{{ res.handlers.<HANDLER>.screenshot }}`: Visual screenshot metadata (only present if captured):
        - `{{ res.handlers.<HANDLER>.screenshot.image }}`: Word-injected image object (`docxtpl.InlineImage`)
        - `{{ res.handlers.<HANDLER>.screenshot.path }}`: Absolute file path to the saved screenshot
@@ -332,13 +332,13 @@ When `capture_screenshot` is enabled and successful, inject the screenshot using
 You can also dynamically iterate through all handlers executed for a host:
 
 ```text
-{%p for h_name in res.handlers.list %}
-Handler: {{ h_name }} | Error: {{ res.handlers[h_name].error }}
-{%p if res.handlers[h_name].latency %}
-Latency: {{ res.handlers[h_name].latency }} ms
+{%p for h_name, h_data in res.handlers.items() %}
+Handler: {{ h_name }} | Error: {{ h_data.error }}
+{%p if h_data.latency %}
+Latency: {{ h_data.latency }} ms
 {%p endif %}
-{%p if res.handlers[h_name].system_info %}
-Model: {{ res.handlers[h_name].system_info.model }} | S/N: {{ res.handlers[h_name].system_info.serial_number }}
+{%p if h_data.system_info %}
+Model: {{ h_data.system_info.model }} | S/N: {{ h_data.system_info.serial_number }}
 {%p endif %}
 {%p endfor %}
 ```

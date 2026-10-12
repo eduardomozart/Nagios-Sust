@@ -78,7 +78,6 @@ class TestMainOrchestrator(unittest.TestCase):
         host_obj = {"name": host}
         rules_list = ["Test Rule"]
         handlers_obj = {
-            "list": ["generic_ping"],
             "generic_ping": {
                 "latency": 15,
                 "error": 0,
@@ -104,7 +103,8 @@ class TestMainOrchestrator(unittest.TestCase):
         self.assertEqual(cumulative_item["sources"]["nagios_pdf"], {"status": "CRITICAL", "service": "PING"})
         self.assertEqual(cumulative_item["sources"]["airwave"], {"ip": "10.0.0.1", "device_id": "538"})
         self.assertEqual(cumulative_item["rules"], ["Test Rule"])
-        self.assertEqual(cumulative_item["handlers"]["list"], ["generic_ping"])
+        self.assertIn("generic_ping", cumulative_item["handlers"])
+        self.assertNotIn("list", cumulative_item["handlers"])
         self.assertEqual(cumulative_item["handlers"]["generic_ping"]["latency"], 15)
         self.assertEqual(cumulative_item["handlers"]["generic_ping"]["error"], 0)
         self.assertEqual(cumulative_item["host"]["name"], "SW-CORE-01")
@@ -121,7 +121,7 @@ class TestMainOrchestrator(unittest.TestCase):
         # Multi-rule execution simulation matching main.py logic
         host_obj = {"name": host}
         rules_list = []
-        handlers_obj = {"list": []}
+        handlers_obj = {}
         sources_list = host_data.get("sources", [])
         sources_obj = {
             "list": list(sources_list) if isinstance(sources_list, list) else [sources_list],
@@ -134,14 +134,12 @@ class TestMainOrchestrator(unittest.TestCase):
         rule1 = {"name": "Rule Ping", "handler": "generic_ping"}
         rules_list.append(rule1["name"])
         res1 = {"host": host, "latency": [12], "error": 0}
-        handlers_obj["list"].append("generic_ping")
         handlers_obj["generic_ping"] = {"latency": max(res1["latency"]), "error": res1["error"]}
 
         # Rule 2 execution: procurve
         rule2 = {"name": "Rule Telemetry", "handler": "procurve"}
         rules_list.append(rule2["name"])
         res2 = {"host": host, "system_info": {"version": "WC.16.11.0027", "uptime": "93 days"}, "error": 0}
-        handlers_obj["list"].append("procurve")
         handlers_obj["procurve"] = {"system_info": res2["system_info"], "error": res2["error"]}
 
         cumulative_item = {
@@ -153,13 +151,38 @@ class TestMainOrchestrator(unittest.TestCase):
 
         # Assert unified single item with both rules and both handlers preserved
         self.assertEqual(cumulative_item["rules"], ["Rule Ping", "Rule Telemetry"])
-        self.assertEqual(cumulative_item["handlers"]["list"], ["generic_ping", "procurve"])
+        self.assertIn("generic_ping", cumulative_item["handlers"])
+        self.assertIn("procurve", cumulative_item["handlers"])
+        self.assertNotIn("list", cumulative_item["handlers"])
         self.assertEqual(cumulative_item["handlers"]["generic_ping"]["latency"], 12)
         self.assertEqual(cumulative_item["handlers"]["generic_ping"]["error"], 0)
         self.assertEqual(cumulative_item["handlers"]["procurve"]["system_info"]["version"], "WC.16.11.0027")
         self.assertEqual(cumulative_item["handlers"]["procurve"]["error"], 0)
         # Verify host remains strictly identity
         self.assertEqual(cumulative_item["host"], {"name": "SW-CORE-01"})
+
+    def test_orchestrator_latency_aggregation_rule(self):
+        """Verifies orchestrator latency aggregation rule: negative prevails, otherwise max prevails."""
+        def aggregate(pings):
+            valid_pings = [int(p) for p in (pings if isinstance(pings, list) else [pings]) if isinstance(p, (int, float))]
+            if not valid_pings:
+                return None
+            negatives = [p for p in valid_pings if p < 0]
+            if negatives:
+                return min(negatives)
+            return max(valid_pings)
+
+        # Single positive latency
+        self.assertEqual(aggregate(15), 15)
+        # Single negative timeout
+        self.assertEqual(aggregate(-3), -3)
+        # Multiple positive: max prevails
+        self.assertEqual(aggregate([15, 80]), 80)
+        # Mixed positive and negative: negative prevails!
+        self.assertEqual(aggregate([15, -3]), -3)
+        self.assertEqual(aggregate([80, -1]), -1)
+        # Multiple negatives: most severe prevails
+        self.assertEqual(aggregate([-1, -3]), -3)
 
 
 if __name__ == "__main__":

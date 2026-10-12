@@ -1,4 +1,5 @@
 import unittest
+from utils.error_codes import ERR_AUTOMATION_FAILED
 import handlers.aruba as aruba_mod
 
 class TestArubaDispatcherHandler(unittest.TestCase):
@@ -17,10 +18,17 @@ Software revision  : WC.16.11.0027
 """
         self.assertEqual(aruba_mod.detect_equipment_type(procurve_output), "procurve")
 
-    def test_detection_fallback(self):
-        """Verifies fallback when output is unrecognizable."""
+    def test_detection_unknown(self):
+        """Verifies unknown output is identified as unknown."""
         unknown_output = "Unknown device prompt"
         self.assertEqual(aruba_mod.detect_equipment_type(unknown_output), "unknown")
+
+    def test_unrecognized_device_type_error(self):
+        """Verifies that an unrecognized Aruba device type returns ERR_AUTOMATION_FAILED without falling back."""
+        res = aruba_mod.handle("SW-UNKNOWN", {}, {}, pre_collected_output="Some unknown prompt")
+        self.assertEqual(res["error"], ERR_AUTOMATION_FAILED)
+        self.assertEqual(res["host"], "SW-UNKNOWN")
+        self.assertNotIn("system_info", res)
 
     def test_dispatcher_execution_delegation(self):
         """Verifies aruba dispatcher delegates properly to arubacx or procurve handlers."""

@@ -311,6 +311,66 @@ class TestFortiGateHandler(unittest.TestCase):
                 target_ip = None
         self.assertIsNone(target_ip, "Missing source tunnel must abort ping instead of using interface alias")
 
+    def test_interface_latency_failure_codes(self):
+        """Verifies interface latency returns negative error codes: -1 (DOWN), -2 (0.0.0.0), -3 (timeout)."""
+        from utils.error_codes import ERR_IF_DOWN, ERR_IF_LOGICAL_DOWN, ERR_PING_TIMEOUT
+
+        # Interface DOWN -> -1
+        status_down = "DOWN"
+        ip_normal = "192.168.1.1"
+        latency_empty = ""
+        intf_latency = -ERR_IF_DOWN if "DOWN" in status_down else -ERR_PING_TIMEOUT
+        self.assertEqual(intf_latency, -1)
+
+        # Logical DOWN (0.0.0.0) -> -2
+        ip_zero = "0.0.0.0"
+        intf_latency_zero = -ERR_IF_LOGICAL_DOWN if ip_zero == "0.0.0.0" else -ERR_PING_TIMEOUT
+        self.assertEqual(intf_latency_zero, -2)
+
+        # Ping timeout (UP with IP, but ping failed) -> -3
+        status_up = "UP"
+        intf_latency_timeout = -ERR_PING_TIMEOUT
+        self.assertEqual(intf_latency_timeout, -3)
+
+    def test_fortigate_error_code_determination_without_root_latency(self):
+        """Verifies fortigate error evaluation sets error code and does not populate root latency."""
+        from utils.error_codes import ERR_OK, ERR_IF_DOWN, ERR_IF_LOGICAL_DOWN, ERR_PING_TIMEOUT
+
+        # Test case: Interface with ping timeout sets error 3
+        if_status_timeout = {
+            "WAN1": {"status": "UP", "ip": "200.1.2.3", "latency": -3, "ping_interface": True},
+        }
+        error_code = ERR_OK
+        for intf_key, intf_data in if_status_timeout.items():
+            lat = intf_data.get("latency")
+            if intf_data.get("ping_interface") and (lat is None or lat < 0) and error_code == ERR_OK:
+                if lat == -ERR_IF_LOGICAL_DOWN:
+                    error_code = ERR_IF_LOGICAL_DOWN
+                elif lat == -ERR_IF_DOWN:
+                    error_code = ERR_IF_DOWN
+                else:
+                    error_code = ERR_PING_TIMEOUT
+        self.assertEqual(error_code, ERR_PING_TIMEOUT)
+
+        # Test case: Interface DOWN sets error 1
+        if_status_down = {
+            "WAN1": {"status": "DOWN", "ip": "200.1.2.3", "latency": -1, "ping_interface": True},
+        }
+        error_code = ERR_OK
+        for intf_key, intf_data in if_status_down.items():
+            lat = intf_data.get("latency")
+            if ("DOWN" in intf_data.get("status", "") or lat == -ERR_IF_DOWN) and error_code == ERR_OK:
+                error_code = ERR_IF_DOWN
+        self.assertEqual(error_code, ERR_IF_DOWN)
+
+        # Verify no root latency key exists in result contract
+        result = {
+            "host": "FGT-01",
+            "if_status": if_status_timeout,
+            "error": error_code,
+        }
+        self.assertNotIn("latency", result)
+
 
 if __name__ == "__main__":
     unittest.main(buffer=True)

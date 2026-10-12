@@ -672,12 +672,26 @@ def _extract_if_status(driver, host, options):
                     if target_ip:
                         latency = _ping_via_cli(driver, target_ip, host, interface_name=ping_intf_name)
         
+        intf_latency = None
+        if wants_ping:
+            if latency:
+                try:
+                    intf_latency = int(latency)
+                except (ValueError, TypeError):
+                    intf_latency = -ERR_PING_TIMEOUT
+            elif ip == "0.0.0.0":
+                intf_latency = -ERR_IF_LOGICAL_DOWN
+            elif "DOWN" in status_clean:
+                intf_latency = -ERR_IF_DOWN
+            else:
+                intf_latency = -ERR_PING_TIMEOUT
+
         if_status[key] = {
             "status": status_clean,
             "ip": ip,
             "mask": mask,
             "gw": gw_found,
-            "latency": latency,
+            "latency": intf_latency,
             "ping_interface": wants_ping,
             "ping_target_ip": target_ip if target_ip else ""
         }
@@ -962,34 +976,30 @@ def handle(host, alert_info, options):
                 result["system_info"] = sys_info
                 print(f"[{host}] System info: S/N={sys_info.get('serial_number')}, Version={sys_info.get('version')}, Uptime={sys_info.get('uptime')}")
         
-        # Populate latency array and determine error code
-        latencies = []
+        # Determine error code across monitored interfaces
         error_code = ERR_OK
         for intf_key, intf_data in result["if_status"].items():
             status = intf_data.get("status", "")
             ip = intf_data.get("ip", "")
+            lat = intf_data.get("latency")
             
             # 1. 0.0.0.0 (Logical down)
-            if ip == "0.0.0.0" and error_code == ERR_OK:
+            if (ip == "0.0.0.0" or lat == -ERR_IF_LOGICAL_DOWN) and error_code == ERR_OK:
                 error_code = ERR_IF_LOGICAL_DOWN
                 
             # 2. Monitored interface is DOWN with an assigned IP address
-            if "DOWN" in status and ip and ip != "0.0.0.0" and error_code == ERR_OK:
+            if ("DOWN" in status or lat == -ERR_IF_DOWN) and ip and ip != "0.0.0.0" and error_code == ERR_OK:
                 error_code = ERR_IF_DOWN
                 
-            # 3. Ping gateway or interface was requested, but failed (timeout)
-            if intf_data.get("ping_interface") and status.startswith("UP") and not intf_data.get("latency") and error_code == ERR_OK:
-                error_code = ERR_PING_TIMEOUT
-                
-            val = intf_data.get("latency")
-            if val:
-                try:
-                    latencies.append(int(val))
-                except:
-                    pass
-                    
-        if latencies:
-            result["latency"] = latencies
+            # 3. Ping gateway or interface was requested, but failed (timeout or error)
+            if intf_data.get("ping_interface") and (lat is None or lat < 0) and error_code == ERR_OK:
+                if lat == -ERR_IF_LOGICAL_DOWN:
+                    error_code = ERR_IF_LOGICAL_DOWN
+                elif lat == -ERR_IF_DOWN:
+                    error_code = ERR_IF_DOWN
+                else:
+                    error_code = ERR_PING_TIMEOUT
+
         result["error"] = error_code
 
         if_str = ", ".join([f"{k}={v}" for k, v in result["if_status"].items()])

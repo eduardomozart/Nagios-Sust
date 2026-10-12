@@ -52,11 +52,11 @@ To simplify deployment for users without a Python environment, the application i
 To ensure architectural cleanliness, prevent namespace pollution, and support cumulative multi-rule execution without collisions, evidence is segregated into 4 clean domains:
 1. **`res.host`**: Dedicated exclusively to host identity (`name`). Telemetry and status data never pollute the host root.
 2. **`res.rules`**: Tracks all matched and executed rules as a direct list of rule names (`res.rules`), allowing direct iteration and joining in Word templates.
-3. **`res.handlers`**: All execution evidence is strictly isolated under `res.handlers.<HANDLER>` with executed handlers tracked in `res.handlers.list`. Hardware telemetry (`system_info`) and ping latency (`latency`) are isolated per handler, ensuring multiple handlers running against the same host never overwrite or conflict with each other.
+3. **`res.handlers`**: All execution evidence is strictly isolated under `res.handlers.<HANDLER>`. Hardware telemetry (`system_info`) and ping latency (`latency`) are isolated per handler, ensuring multiple handlers running against the same host never overwrite or conflict with each other.
 4. **`res.sources`**: Discovery attributes are preserved under `res.sources.<SOURCE>` with discovery provenance tracked in `res.sources.list`.
 
 ### Standardized Numeric Error Codes (`utils/error_codes.py`)
-Handlers return standardized integer error codes (`0` for `ERR_OK`, `1`..`8` for specific failure modes). This separates execution outcomes from presentation language, allowing Word templates in any language (`template_en.docx`, `template_pt-BR.docx`) to conditionally render localized error explanations without hardcoded string parsing.
+Handlers return standardized integer error codes (`0` for `ERR_OK`, `1`..`8` for specific failure modes). This separates execution outcomes from presentation language, allowing Word templates in any language (`template_en.docx`, `template_pt-BR.docx`) to conditionally render localized error explanations without hardcoded string parsing. Furthermore, when a ping or link check fails, latency fields encode the failure using the negative value of the error code (`-1` for `ERR_IF_DOWN`, `-2` for `ERR_IF_LOGICAL_DOWN`, `-3` for `ERR_PING_TIMEOUT`), enabling straightforward `< 0` template evaluations.
 
 ### Decoupled Document Templating (`docxtpl`)
 Instead of hardcoding document styles using `python-docx`, the reporting engine uses `docxtpl` (Word + Jinja2 syntax). This allows end-users to freely modify `template.docx` using Microsoft Word (changing fonts, adding company logos, adjusting layout) without ever touching the Python source code. The script simply injects the data into the `{{ variable }}` tags.

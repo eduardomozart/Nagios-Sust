@@ -149,12 +149,9 @@ def export(results, config):
             handlers_val = res.get("handlers", {})
             if isinstance(handlers_val, dict):
                 handlers_obj = dict(handlers_val)
-                if "list" not in handlers_obj:
-                    handlers_obj["list"] = []
-            elif isinstance(handlers_val, list):
-                handlers_obj = {"list": list(handlers_val)}
+                handlers_obj.pop("list", None)
             else:
-                handlers_obj = {"list": []}
+                handlers_obj = {}
 
             sources_val = res.get("sources", {})
             if isinstance(sources_val, dict):
@@ -177,9 +174,8 @@ def export(results, config):
 
             # Inject InlineImage for any captured handler screenshots
             handlers_data = res_context["handlers"]
-            for h_name in handlers_data.get("list", []):
-                h_entry = handlers_data.get(h_name, {})
-                if "screenshot" in h_entry and isinstance(h_entry["screenshot"], dict):
+            for h_name, h_entry in handlers_data.items():
+                if isinstance(h_entry, dict) and "screenshot" in h_entry and isinstance(h_entry["screenshot"], dict):
                     s_data = h_entry["screenshot"]
                     path = s_data.get("path")
                     if path and os.path.exists(path) and InlineImage and Inches:

@@ -11,8 +11,8 @@ def execute_generic_ping(host, alert, options, handler_name="generic_ping"):
     """
     result = {
         "host": host,
-        "latency": [],
-        "error": ERR_OK,
+        "latency": -ERR_PING_TIMEOUT,
+        "error": ERR_PING_TIMEOUT,
     }
     
     print(f"[{host}] Executing ping for {handler_name}...")
@@ -28,12 +28,12 @@ def execute_generic_ping(host, alert, options, handler_name="generic_ping"):
     if latency:
         try:
             latency_val = int(latency)
-            result["latency"].append(latency_val)
+            result["latency"] = latency_val
+            result["error"] = ERR_OK
             print(f"[{host}] Ping successful ({latency}ms)")
         except ValueError:
             pass
     else:
-        result["error"] = ERR_PING_TIMEOUT
         print(f"[{host}] Ping timeout or unreachable.")
         
     if options.get("capture_screenshot", True):

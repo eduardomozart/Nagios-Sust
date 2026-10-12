@@ -201,9 +201,7 @@ def main():
             "name": host,
         }
         rules_list = []
-        handlers_obj = {
-            "list": [],
-        }
+        handlers_obj = {}
 
         # Build sources subsystem
         sources_list = host_data.get("sources", [])
@@ -237,11 +235,15 @@ def main():
                     handler_entry = {
                         "error": int(result.get("error", 0)),
                     }
-                    if "latency" in result and result["latency"]:
+                    if "latency" in result and result["latency"] is not None:
                         pings = result["latency"] if isinstance(result["latency"], list) else [result["latency"]]
-                        valid_pings = [p for p in pings if isinstance(p, (int, float))]
+                        valid_pings = [int(p) for p in pings if isinstance(p, (int, float))]
                         if valid_pings:
-                            handler_entry["latency"] = max(valid_pings)
+                            negatives = [p for p in valid_pings if p < 0]
+                            if negatives:
+                                handler_entry["latency"] = min(negatives)
+                            else:
+                                handler_entry["latency"] = max(valid_pings)
                     if "if_status" in result:
                         handler_entry["if_status"] = result["if_status"]
                     if "system_info" in result and result["system_info"]:
@@ -249,8 +251,6 @@ def main():
                     if "screenshot" in result and result["screenshot"]:
                         handler_entry["screenshot"] = result["screenshot"]
 
-                    if handler_name not in handlers_obj["list"]:
-                        handlers_obj["list"].append(handler_name)
                     handlers_obj[handler_name] = handler_entry
 
             except ImportError:
