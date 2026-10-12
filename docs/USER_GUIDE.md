@@ -235,7 +235,7 @@ Nagios-Sust structures all collected evidence into 4 distinct architectural doma
    - Dynamically iterate over handlers: `{%p for handler_name, handler_data in res.handlers.items() %}`
    - **`res.handlers.<HANDLER>`**: Isolated evidence namespace for each executed handler, matching the rule's `handler` name (e.g. `res.handlers.aruba` when using `handler: "aruba"`):
      - `{{ res.handlers.<HANDLER>.error }}`: Standard integer error code (`0` for success, non-zero for faults).
-     - `{{ res.handlers.<HANDLER>.latency }}`: Ping latency integer in ms (`>= 0` on success, `-3` on timeout; only present on handlers that ping the device itself like `generic_ping`).
+     - `{{ res.handlers.<HANDLER>.latency }}`: Ping latency integer in ms (`>= 0` on success, `None` on timeout; only present on handlers that ping the device itself like `generic_ping`).
      - `{{ res.handlers.<HANDLER>.system_info }}`: Hardware and OS telemetry dictionary (only present when scraped or parsed by the handler):
        - `{{ res.handlers.<HANDLER>.system_info.hostname }}`: Detected hostname
        - `{{ res.handlers.<HANDLER>.system_info.os_type }}`: Operating system (`FortiOS`, `AOS-CX`, or `AOS-S`)
@@ -252,7 +252,7 @@ Nagios-Sust structures all collected evidence into 4 distinct architectural doma
        - `{{ intf_data.ip }}`: Interface IP address
        - `{{ intf_data.mask }}`: CIDR subnet mask
        - `{{ intf_data.gw }}`: Gateway IP address
-       - `{{ intf_data.latency }}`: Interface ping latency in ms (`>= 0` on success, or negative error code on failure: `-1` for link DOWN, `-2` for logical DOWN 0.0.0.0, `-3` for ping timeout).
+       - `{{ intf_data.latency }}`: Interface ping latency in ms (`>= 0` on success, `None` on failure/timeout; key is only present if `ping_interface` is enabled).
      - `{{ res.handlers.<HANDLER>.screenshot }}`: Visual screenshot metadata (only present if captured):
        - `{{ res.handlers.<HANDLER>.screenshot.image }}`: Word-injected image object (`docxtpl.InlineImage`)
        - `{{ res.handlers.<HANDLER>.screenshot.path }}`: Absolute file path to the saved screenshot

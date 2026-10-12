@@ -235,15 +235,25 @@ def main():
                     handler_entry = {
                         "error": int(result.get("error", 0)),
                     }
-                    if "latency" in result and result["latency"] is not None:
-                        pings = result["latency"] if isinstance(result["latency"], list) else [result["latency"]]
-                        valid_pings = [int(p) for p in pings if isinstance(p, (int, float))]
-                        if valid_pings:
-                            negatives = [p for p in valid_pings if p < 0]
-                            if negatives:
-                                handler_entry["latency"] = min(negatives)
+                    if "latency" in result:
+                        raw_lat = result["latency"]
+                        if raw_lat is None:
+                            handler_entry["latency"] = None
+                        elif isinstance(raw_lat, list):
+                            if not raw_lat:
+                                handler_entry["latency"] = None
                             else:
-                                handler_entry["latency"] = max(valid_pings)
+                                try:
+                                    valid_nums = [int(p) for p in raw_lat if str(p).isdigit() or isinstance(p, (int, float))]
+                                    handler_entry["latency"] = max(valid_nums) if valid_nums else None
+                                except (ValueError, TypeError):
+                                    handler_entry["latency"] = None
+                        else:
+                            try:
+                                lat_int = int(raw_lat)
+                                handler_entry["latency"] = lat_int if lat_int >= 0 else None
+                            except (ValueError, TypeError):
+                                handler_entry["latency"] = None
                     if "if_status" in result:
                         handler_entry["if_status"] = result["if_status"]
                     if "system_info" in result and result["system_info"]:

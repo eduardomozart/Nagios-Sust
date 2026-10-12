@@ -11,7 +11,7 @@ def execute_generic_ping(host, alert, options, handler_name="generic_ping"):
     """
     result = {
         "host": host,
-        "latency": -ERR_PING_TIMEOUT,
+        "latency": None,
         "error": ERR_PING_TIMEOUT,
     }
     

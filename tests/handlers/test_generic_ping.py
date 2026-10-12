@@ -34,7 +34,7 @@ class TestGenericPingHandler(unittest.TestCase):
         res = generic_ping_mod.execute_generic_ping("test-router", "PING CRITICAL", options)
 
         self.assertEqual(res["host"], "test-router")
-        self.assertEqual(res["latency"], -3)
+        self.assertIsNone(res["latency"])
         self.assertEqual(res["error"], 3)
 
     @patch("handlers.generic_ping.ping_with_output")

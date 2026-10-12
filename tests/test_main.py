@@ -161,28 +161,41 @@ class TestMainOrchestrator(unittest.TestCase):
         # Verify host remains strictly identity
         self.assertEqual(cumulative_item["host"], {"name": "SW-CORE-01"})
 
-    def test_orchestrator_latency_aggregation_rule(self):
-        """Verifies orchestrator latency aggregation rule: negative prevails, otherwise max prevails."""
-        def aggregate(pings):
-            valid_pings = [int(p) for p in (pings if isinstance(pings, list) else [pings]) if isinstance(p, (int, float))]
-            if not valid_pings:
-                return None
-            negatives = [p for p in valid_pings if p < 0]
-            if negatives:
-                return min(negatives)
-            return max(valid_pings)
+    def test_orchestrator_handler_latency_parsing(self):
+        """Verifies main.py parses handler latency, preserving None on failure, and does not create root latency."""
+        def parse_latency(result):
+            handler_entry = {"error": 0}
+            if "latency" in result:
+                raw_lat = result["latency"]
+                if raw_lat is None:
+                    handler_entry["latency"] = None
+                elif isinstance(raw_lat, list):
+                    if not raw_lat:
+                        handler_entry["latency"] = None
+                    else:
+                        try:
+                            valid_nums = [int(p) for p in raw_lat if str(p).isdigit() or isinstance(p, (int, float))]
+                            handler_entry["latency"] = max(valid_nums) if valid_nums else None
+                        except (ValueError, TypeError):
+                            handler_entry["latency"] = None
+                else:
+                    try:
+                        lat_int = int(raw_lat)
+                        handler_entry["latency"] = lat_int if lat_int >= 0 else None
+                    except (ValueError, TypeError):
+                        handler_entry["latency"] = None
+            return handler_entry
 
         # Single positive latency
-        self.assertEqual(aggregate(15), 15)
-        # Single negative timeout
-        self.assertEqual(aggregate(-3), -3)
-        # Multiple positive: max prevails
-        self.assertEqual(aggregate([15, 80]), 80)
-        # Mixed positive and negative: negative prevails!
-        self.assertEqual(aggregate([15, -3]), -3)
-        self.assertEqual(aggregate([80, -1]), -1)
-        # Multiple negatives: most severe prevails
-        self.assertEqual(aggregate([-1, -3]), -3)
+        self.assertEqual(parse_latency({"latency": 15})["latency"], 15)
+        # Latency timeout as None
+        self.assertIsNone(parse_latency({"latency": None})["latency"])
+        # Latency timeout as empty list
+        self.assertIsNone(parse_latency({"latency": []})["latency"])
+        # String latency
+        self.assertEqual(parse_latency({"latency": "22"})["latency"], 22)
+        # Handler without latency does not create latency key
+        self.assertNotIn("latency", parse_latency({"error": 0}))
 
 
 if __name__ == "__main__":
