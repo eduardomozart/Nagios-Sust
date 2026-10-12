@@ -107,7 +107,12 @@ def handle(host, alert_info, options):
     }
 
     # 1. Resolve Device ID
-    device_id = alert_info.get("device_id") if isinstance(alert_info, dict) else None
+    device_id = None
+    if isinstance(alert_info, dict):
+        if isinstance(alert_info.get("airwave"), dict):
+            device_id = alert_info["airwave"].get("device_id")
+        if not device_id:
+            device_id = alert_info.get("device_id")
     device_data = None
 
     if not device_id:

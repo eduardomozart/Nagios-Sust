@@ -55,4 +55,4 @@ Chassis Serial Nbr     : SG0000000001
         self.assertTrue(callable(arubacx_mod.handle))
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(buffer=True)

@@ -6,6 +6,14 @@ try:
 except ImportError:
     yaml = None
 import importlib
+from utils.exit_codes import (
+    ERR_CONFIG_FILE_NOT_FOUND,
+    ERR_PROMPTED_CONFIG_NOT_FOUND,
+    ERR_NO_CONFIG_SELECTED,
+    ERR_PYYAML_MISSING,
+    ERR_CONFIG_PARSE_ERROR,
+    ERR_CONFIG_VALIDATION_ERROR,
+)
 
 class ConfigValidationError(Exception):
     """Raised when the configuration syntax or schema is invalid."""
@@ -208,30 +216,105 @@ def validate_config(config, config_path="config.yaml", require_sources=True):
         raise ConfigValidationError(f"'credentials' in '{config_path}' must be a dictionary.")
 
 
-def load_config(config_file="config.yaml", base_dir=None, require_sources=True):
+def prompt_for_config_file(base_dir=None):
     """
-    Loads, parses, resolves includes, and validates a configuration file.
+    Prompts the user to specify or browse for a configuration file
+    when default 'config.yaml' is missing and none was given via CLI.
     """
     if base_dir is None:
         base_dir = os.getcwd()
 
-    if not os.path.isabs(config_file):
-        if os.path.exists(config_file):
-            config_path = os.path.abspath(config_file)
-        else:
-            config_path = os.path.join(base_dir, config_file)
-    else:
-        config_path = config_file
+    print("Configuration file 'config.yaml' not found.")
+    selected = None
+    try:
+        user_input = input("Please enter the path to a configuration file (or press Enter to browse): ").strip().strip("\"'")
+    except (EOFError, KeyboardInterrupt):
+        print("\nAborted.")
+        sys.exit(ERR_NO_CONFIG_SELECTED)
 
-    if not os.path.exists(config_path):
-        print(f"Error: Configuration file '{config_file}' not found.")
-        print(f"Resolved path: '{config_path}'")
-        print("Please verify the file path or provide a valid file with -c / --config.")
-        sys.exit(1)
+    if user_input:
+        selected = user_input
+    else:
+        try:
+            from utils.dialog import open_file_dialog
+            selected = open_file_dialog(
+                title="Select Configuration YAML File",
+                file_filter="YAML files (*.yaml;*.yml)\0*.yaml;*.yml\0All files (*.*)\0*.*\0\0"
+            )
+        except Exception:
+            selected = None
+
+    if not selected:
+        print("Error: No configuration file selected.")
+        sys.exit(ERR_NO_CONFIG_SELECTED)
+
+    if not os.path.isabs(selected):
+        if os.path.exists(selected):
+            chosen_path = os.path.abspath(selected)
+        else:
+            chosen_path = os.path.join(base_dir, selected)
+    else:
+        chosen_path = selected
+
+    if not os.path.exists(chosen_path):
+        print(f"Error: Configuration file '{selected}' not found.")
+        sys.exit(ERR_PROMPTED_CONFIG_NOT_FOUND)
+
+    return chosen_path
+
+
+def resolve_config_path(cli_config=None, base_dir=None):
+    """
+    Resolves the configuration file path to use:
+    1. If cli_config is provided (-c / --config):
+       Verifies existence. If not found, prints an error message and exits with code ERR_CONFIG_FILE_NOT_FOUND.
+    2. If cli_config is None:
+       Checks for default 'config.yaml' in current directory or base_dir.
+       If found, returns it.
+       If not found, prompts the user which config file to use.
+    """
+    if base_dir is None:
+        base_dir = os.getcwd()
+
+    # 1. Specified via CLI (-c / --config)
+    if cli_config is not None:
+        if not os.path.isabs(cli_config):
+            if os.path.exists(cli_config):
+                config_path = os.path.abspath(cli_config)
+            else:
+                config_path = os.path.join(base_dir, cli_config)
+        else:
+            config_path = cli_config
+
+        if not os.path.exists(config_path):
+            print(f"Error: Configuration file '{cli_config}' not found.")
+            sys.exit(ERR_CONFIG_FILE_NOT_FOUND)
+        return config_path
+
+    # 2. None specified on CLI: check default config.yaml
+    default_name = "config.yaml"
+    if os.path.exists(default_name):
+        return os.path.abspath(default_name)
+    default_path = os.path.join(base_dir, default_name)
+    if os.path.exists(default_path):
+        return default_path
+
+    # 3. Default does not exist: ask which config file to use
+    return prompt_for_config_file(base_dir=base_dir)
+
+
+def load_config(config_file=None, base_dir=None, require_sources=True):
+    """
+    Resolves, loads, parses, resolves includes, and validates a configuration file.
+    """
+    if base_dir is None:
+        base_dir = os.getcwd()
+
+    config_path = resolve_config_path(config_file, base_dir=base_dir)
 
     if yaml is None:
         print("[!] Error: PyYAML is not installed. Please install PyYAML to load YAML configurations.")
-        sys.exit(1)
+        sys.exit(ERR_PYYAML_MISSING)
 
     try:
         with open(config_path, "r", encoding="utf-8") as f:
@@ -242,7 +325,7 @@ def load_config(config_file="config.yaml", base_dir=None, require_sources=True):
         print("    1. Use forward slashes (e.g., C:/Users/...) OR")
         print("    2. Use single quotes ('C:\\Users\\...') instead of double quotes.")
         print(f"\nDetailed YAML Error:\n{exc}")
-        sys.exit(1)
+        sys.exit(ERR_CONFIG_PARSE_ERROR)
 
     config_dir = os.path.dirname(os.path.realpath(config_path))
     visited = {os.path.realpath(config_path)}
@@ -253,6 +336,6 @@ def load_config(config_file="config.yaml", base_dir=None, require_sources=True):
     except ConfigValidationError as err:
         print(f"\n[!] Configuration Validation Error in '{config_file}':")
         print(f"    {err}\n")
-        sys.exit(1)
+        sys.exit(ERR_CONFIG_VALIDATION_ERROR)
 
     return merged_config

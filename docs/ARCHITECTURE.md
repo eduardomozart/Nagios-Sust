@@ -20,13 +20,14 @@ The orchestrator drives the execution flow:
 - Delegates host aggregation across configured `device_sources` to `sources.load_unique_hosts` (or prompts for device names/sources interactively if omitted and not specified via `-d`).
 - Iterates over the deduplicated host collection and matches each host against user-defined rules.
 - Injects a `credential_provider` callback into matched handlers to decouple CLI/UI prompts from the automation logic.
+- Enriches each handler's result dictionary with `rule_name`, `handler`, `sources` (flat list of discovered sources), and namespaced source dictionaries (`res.<SOURCE>`, e.g. `res.nagios_pdf`, `res.airwave`) before passing to exporters.
 
 ### 3. Modular Sources & Multi-Source Aggregation (`sources/`)
 Device and alert discovery is decoupled into pluggable source modules:
 - **Nagios PDF (`sources/nagios_pdf.py`)**: Resolves Nagios Service Status PDF reports (prompting via a native UI dialog via `utils/dialog.py` if the file is missing), parses tabular alerts via `utils/pdf_parser.py`, and applies optional host filtering.
 - **AirWave (`sources/airwave.py`)**: Connects to the Aruba AirWave API via `utils/airwave.py` and `pyairwave`, enumerating devices filtered by `host_filter` (`startswith` / `regex`), device categories, and hardware models.
 
-When multiple sources are configured (e.g. `device_sources: ["nagios_pdf", "airwave"]`), `sources.load_unique_hosts` queries each source and canonicalizes host records (case-insensitively). Overlapping devices are merged into a single unique host object enriched with metadata from all matching sources (e.g., combining alert state from Nagios with IP/device ID from AirWave) and tracking source provenance in `item["sources"]`.
+When multiple sources are configured (e.g. `device_sources: ["nagios_pdf", "airwave"]`), `sources.load_unique_hosts` queries each source and canonicalizes host records (case-insensitively). Overlapping devices are merged into a single unique host object housing each source's discovery attributes cleanly under its source key (e.g. `item["nagios_pdf"]`, `item["airwave"]`) and tracking source provenance in `item["sources"]` as a flat list of strings (appending each source that discovered the host).
 
 ### 4. Modular Handlers (`handlers/`)
 Handlers are specific Python scripts designed to interact with different types of equipment. To add a new equipment type (e.g., Cisco, CheckPoint), a developer simply creates a new handler file and maps it in the YAML config.
@@ -54,3 +55,24 @@ Device metadata is strictly housed inside `res.system_info` (`hostname`, `os_typ
 
 ### Decoupled Document Templating (`docxtpl`)
 Instead of hardcoding document styles using `python-docx`, the reporting engine uses `docxtpl` (Word + Jinja2 syntax). This allows end-users to freely modify `template.docx` using Microsoft Word (changing fonts, adding company logos, adjusting layout) without ever touching the Python source code. The script simply injects the data into the `{{ variable }}` tags.
+
+## Application Exit Codes
+
+Nagios-Sust defines unified, distinct numeric exit codes in `utils/exit_codes.py` for each fatal termination condition. These exit codes allow CI/CD runners, external wrapper scripts, and CLI operators to differentiate between configuration mistakes, source/connectivity failures, and template rendering errors:
+
+| Exit Code | Constant | Category | Description |
+|---|---|---|---|
+| `0` | `EXIT_SUCCESS` | Success | Application completed successfully. |
+| `10` | `ERR_CONFIG_FILE_NOT_FOUND` | Configuration | Explicitly specified configuration file (`-c` / `--config`) was not found. |
+| `11` | `ERR_PROMPTED_CONFIG_NOT_FOUND` | Configuration | Configuration file path provided during interactive prompt does not exist. |
+| `12` | `ERR_NO_CONFIG_SELECTED` | Configuration | No configuration file was selected or interactive config selection prompt was aborted. |
+| `13` | `ERR_PYYAML_MISSING` | Configuration | PyYAML package is not installed in the Python runtime environment. |
+| `14` | `ERR_CONFIG_PARSE_ERROR` | Configuration | YAML syntax or parsing error encountered while parsing configuration files. |
+| `15` | `ERR_CONFIG_VALIDATION_ERROR` | Configuration | Configuration schema validation failed (e.g., missing required fields, invalid keys, circular includes). |
+| `20` | `ERR_SOURCE_NOT_FOUND` | Device Sources | Specified device source name was not found in `sources/`. |
+| `21` | `ERR_SOURCE_LOAD_ERROR` | Device Sources | Fatal error encountered while querying or loading devices from a source module. |
+| `22` | `ERR_PDF_FILE_NOT_SELECTED` | Device Sources | Nagios PDF file dialog was cancelled or no file was selected. |
+| `23` | `ERR_PDF_PARSE_ERROR` | Device Sources | Fatal error encountered while parsing the Nagios Service Status PDF file. |
+| `24` | `ERR_AIRWAVE_API_ERROR` | Device Sources | Fatal connection or query error communicating with the Aruba AirWave API. |
+| `25` | `ERR_DEVICE_PROMPT_ABORTED` | Orchestrator | Interactive device or source selection prompt was aborted without input. |
+| `30` | `ERR_DOCX_RENDER_ERROR` | Exporters | Fatal template error encountered while rendering Word template (`docxtpl`). |

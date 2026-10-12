@@ -1,6 +1,7 @@
 import os
 import sys
 import importlib
+from utils.exit_codes import ERR_SOURCE_NOT_FOUND, ERR_SOURCE_LOAD_ERROR
 
 
 def get_supported_sources():
@@ -36,10 +37,10 @@ def load_unique_hosts(config, source_options=None):
             source_hosts = source_module.get_hosts(config, source_options)
         except ImportError:
             print(f"Error: Device source '{clean_name}' not found in sources/")
-            sys.exit(1)
+            sys.exit(ERR_SOURCE_NOT_FOUND)
         except Exception as e:
             print(f"Error loading devices from source '{clean_name}': {e}")
-            sys.exit(1)
+            sys.exit(ERR_SOURCE_LOAD_ERROR)
 
         print(f"Source '{clean_name}' yielded {len(source_hosts)} host(s).")
         for item in source_hosts:
@@ -48,25 +49,23 @@ def load_unique_hosts(config, source_options=None):
                 continue
             canonical_key = raw_host.strip().lower()
 
+            # Extract source-specific attributes
+            source_metadata = {k: v for k, v in item.items() if k not in ("host", "sources")}
+
             if canonical_key not in unique_hosts:
-                entry = dict(item)
-                entry["sources"] = [clean_name]
+                entry = {
+                    "host": item["host"],
+                    "sources": [clean_name],
+                    clean_name: source_metadata,
+                }
                 unique_hosts[canonical_key] = entry
             else:
                 existing = unique_hosts[canonical_key]
+                if "sources" not in existing or not isinstance(existing["sources"], list):
+                    existing["sources"] = []
                 if clean_name not in existing["sources"]:
                     existing["sources"].append(clean_name)
-                # Merge non-empty fields from item into existing
-                for k, v in item.items():
-                    if k in ("host", "sources"):
-                        continue
-                    if v is not None and v != "":
-                        if k not in existing or existing[k] is None or existing[k] == "":
-                            existing[k] = v
-                        elif isinstance(existing[k], list) and isinstance(v, list):
-                            for sub_item in v:
-                                if sub_item not in existing[k]:
-                                    existing[k].append(sub_item)
+                existing[clean_name] = source_metadata
 
     merged_hosts = list(unique_hosts.values())
     print(f"Total unique hosts across all sources: {len(merged_hosts)}\n")

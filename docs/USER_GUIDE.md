@@ -169,6 +169,20 @@ Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Micro
 
 ### Available Template Variables (All Handlers):
 - `{{ res.host }}`: The equipment name (e.g. `SW-CORE-01`, `FGT-CORE-01`)
+- `{{ res.sources }}`: List of sources that discovered the device (e.g. `["nagios_pdf"]`, `["airwave"]`, or `["nagios_pdf", "airwave"]`). If multiple sources discover the device, each source is appended to this list.
+  - Display as text: `{{ res.sources | join(', ') }}`
+- **Source-Namespaced Dictionaries (`res.<SOURCE>`)**: All attributes collected during discovery are strictly housed inside their source name sub-dictionary, completely eliminating key collisions between sources and handlers:
+  - **`{{ res.nagios_pdf }}`**: Alert details from Nagios PDF (e.g. `{{ res.nagios_pdf.status }}`, `{{ res.nagios_pdf.service }}`).
+  - **`{{ res.airwave }}`**: Device inventory from AirWave API (e.g. `{{ res.airwave.device_id }}`, `{{ res.airwave.ip_address }}`, `{{ res.airwave.model }}`).
+  - **Conditional template block example**:
+    ```text
+    {%p if res.nagios_pdf %}
+    Alert: {{ res.nagios_pdf.service }} (Status: {{ res.nagios_pdf.status }})
+    {%p endif %}
+    {%p if res.airwave %}
+    AirWave: {{ res.airwave.model }} | IP: {{ res.airwave.ip_address }} | ID: {{ res.airwave.device_id }}
+    {%p endif %}
+    ```
 - `{{ res.rule_name }}`: The name of the rule that was matched (e.g., "Aruba Switch System Info")
 - `{{ res.handler }}`: The handler executed for this entry (e.g. `fortigate`, `aruba`, `generic_ping`)
 - `{{ res.latency }}`: The worst ping latency across all valid links in ms (empty if unreachable)

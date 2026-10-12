@@ -10,6 +10,16 @@ from utils.config import (
     validate_config,
     resolve_includes,
     load_config,
+    resolve_config_path,
+    prompt_for_config_file,
+)
+from utils.exit_codes import (
+    ERR_CONFIG_FILE_NOT_FOUND,
+    ERR_PROMPTED_CONFIG_NOT_FOUND,
+    ERR_NO_CONFIG_SELECTED,
+    ERR_PYYAML_MISSING,
+    ERR_CONFIG_PARSE_ERROR,
+    ERR_CONFIG_VALIDATION_ERROR,
 )
 
 
@@ -269,6 +279,113 @@ class TestConfig(unittest.TestCase):
             validate_config(cfg_list_regex)
         self.assertIn("host_filter 'regex' must be a string", str(ctx.exception))
 
+    @patch("sys.exit")
+    def test_resolve_config_path_explicit_cli_file_not_found_exits(self, mock_exit):
+        """Verifies that an explicitly specified -c config file that does not exist exits with ERR_CONFIG_FILE_NOT_FOUND."""
+        mock_exit.side_effect = SystemExit(ERR_CONFIG_FILE_NOT_FOUND)
+        with self.assertRaises(SystemExit):
+            resolve_config_path("missing_custom.yaml", base_dir=self.test_dir)
+        mock_exit.assert_called_with(ERR_CONFIG_FILE_NOT_FOUND)
+
+    @patch("sys.exit")
+    def test_resolve_config_path_explicit_cli_config_yaml_not_found_exits(self, mock_exit):
+        """Verifies that if config.yaml was explicitly specified via -c and does not exist, it exits without asking."""
+        mock_exit.side_effect = SystemExit(ERR_CONFIG_FILE_NOT_FOUND)
+        with self.assertRaises(SystemExit):
+            resolve_config_path("config.yaml", base_dir=self.test_dir)
+        mock_exit.assert_called_with(ERR_CONFIG_FILE_NOT_FOUND)
+
+    def test_resolve_config_path_explicit_cli_file_exists(self):
+        """Verifies that an explicitly specified -c config file that exists is returned directly."""
+        custom_file = os.path.join(self.test_dir, "custom.yaml")
+        with open(custom_file, "w") as f:
+            f.write("rules: []\n")
+        resolved = resolve_config_path(custom_file, base_dir=self.test_dir)
+        self.assertEqual(resolved, custom_file)
+
+    def test_resolve_config_path_none_specified_and_default_exists(self):
+        """Verifies that if none was specified on CLI and default config.yaml exists, it is returned without prompt."""
+        default_file = os.path.join(self.test_dir, "config.yaml")
+        with open(default_file, "w") as f:
+            f.write("rules: []\n")
+        resolved = resolve_config_path(None, base_dir=self.test_dir)
+        self.assertEqual(resolved, default_file)
+
+    @patch("builtins.input")
+    def test_resolve_config_path_none_specified_default_missing_prompts_and_succeeds(self, mock_input):
+        """Verifies that if none was specified and config.yaml does not exist, it asks and uses user input."""
+        custom_file = os.path.join(self.test_dir, "prompted.yaml")
+        with open(custom_file, "w") as f:
+            f.write("rules: []\n")
+        mock_input.return_value = custom_file
+
+        resolved = resolve_config_path(None, base_dir=self.test_dir)
+        self.assertEqual(resolved, custom_file)
+        mock_input.assert_called_once()
+
+    @patch("builtins.input")
+    @patch("sys.exit")
+    def test_resolve_config_path_none_specified_default_missing_prompts_missing_file_exits(self, mock_exit, mock_input):
+        """Verifies that if prompted config file does not exist, it shows message and exits with ERR_PROMPTED_CONFIG_NOT_FOUND."""
+        mock_exit.side_effect = SystemExit(ERR_PROMPTED_CONFIG_NOT_FOUND)
+        mock_input.return_value = "non_existent_prompted.yaml"
+
+        with self.assertRaises(SystemExit):
+            resolve_config_path(None, base_dir=self.test_dir)
+        mock_exit.assert_called_with(ERR_PROMPTED_CONFIG_NOT_FOUND)
+
+    @patch("builtins.input")
+    @patch("sys.exit")
+    def test_resolve_config_path_none_specified_default_missing_prompt_aborted_exits(self, mock_exit, mock_input):
+        """Verifies that aborting prompt exits cleanly with ERR_NO_CONFIG_SELECTED."""
+        mock_exit.side_effect = SystemExit(ERR_NO_CONFIG_SELECTED)
+        mock_input.side_effect = KeyboardInterrupt()
+
+        with self.assertRaises(SystemExit):
+            resolve_config_path(None, base_dir=self.test_dir)
+        mock_exit.assert_called_with(ERR_NO_CONFIG_SELECTED)
+
+    @patch("utils.config.yaml", None)
+    @patch("sys.exit")
+    def test_load_config_missing_pyyaml_exits(self, mock_exit):
+        """Verifies that missing PyYAML library exits with ERR_PYYAML_MISSING."""
+        mock_exit.side_effect = SystemExit(ERR_PYYAML_MISSING)
+        cfg_file = os.path.join(self.test_dir, "config.yaml")
+        with open(cfg_file, "w") as f:
+            f.write("rules: []\n")
+        with self.assertRaises(SystemExit):
+            load_config(cfg_file, base_dir=self.test_dir)
+        mock_exit.assert_called_with(ERR_PYYAML_MISSING)
+
+    @patch("utils.config.yaml")
+    @patch("sys.exit")
+    def test_load_config_yaml_parse_error_exits(self, mock_exit, mock_yaml):
+        """Verifies that invalid YAML syntax exits with ERR_CONFIG_PARSE_ERROR."""
+        class FakeYAMLError(Exception):
+            pass
+        mock_yaml.YAMLError = FakeYAMLError
+        mock_yaml.safe_load.side_effect = FakeYAMLError("parse error")
+        mock_exit.side_effect = SystemExit(ERR_CONFIG_PARSE_ERROR)
+        cfg_file = os.path.join(self.test_dir, "invalid.yaml")
+        with open(cfg_file, "w") as f:
+            f.write("rules: [unclosed list\n")
+        with self.assertRaises(SystemExit):
+            load_config(cfg_file, base_dir=self.test_dir)
+        mock_exit.assert_called_with(ERR_CONFIG_PARSE_ERROR)
+
+    @patch("utils.config.yaml")
+    @patch("sys.exit")
+    def test_load_config_validation_error_exits(self, mock_exit, mock_yaml):
+        """Verifies that configuration schema failure exits with ERR_CONFIG_VALIDATION_ERROR."""
+        mock_exit.side_effect = SystemExit(ERR_CONFIG_VALIDATION_ERROR)
+        mock_yaml.safe_load.return_value = {"device_sources": ["nagios_pdf"]}
+        cfg_file = os.path.join(self.test_dir, "missing_rules.yaml")
+        with open(cfg_file, "w") as f:
+            f.write("device_sources: ['nagios_pdf']\n")
+        with self.assertRaises(SystemExit):
+            load_config(cfg_file, base_dir=self.test_dir)
+        mock_exit.assert_called_with(ERR_CONFIG_VALIDATION_ERROR)
+
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(buffer=True)

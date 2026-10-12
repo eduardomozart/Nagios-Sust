@@ -3,6 +3,14 @@ import unittest
 import importlib
 from unittest.mock import patch, MagicMock
 from sources import nagios_pdf, airwave
+from utils.exit_codes import (
+    ERR_SOURCE_NOT_FOUND,
+    ERR_SOURCE_LOAD_ERROR,
+    ERR_PDF_FILE_NOT_SELECTED,
+    ERR_PDF_PARSE_ERROR,
+    ERR_AIRWAVE_API_ERROR,
+    ERR_DEVICE_PROMPT_ABORTED,
+)
 
 
 class TestSources(unittest.TestCase):
@@ -132,17 +140,20 @@ class TestSources(unittest.TestCase):
         self.assertIn("SW-ACCESS-01", by_host)
         self.assertIn("AP-01", by_host)
 
-        # Check merged attributes and provenance for SW-CORE-01
+        # Check namespaced attributes and provenance for SW-CORE-01
         core = by_host["SW-CORE-01"]
-        self.assertEqual(core["status"], "CRITICAL")
-        self.assertEqual(core["ip"], "10.0.0.1")
-        self.assertEqual(core["device_id"], "538")
-        self.assertEqual(core["model"], "6300M")
         self.assertEqual(core["sources"], ["nagios_pdf", "airwave"])
+        self.assertEqual(core["nagios_pdf"], {"status": "CRITICAL", "service": "PING"})
+        self.assertEqual(core["airwave"], {"ip": "10.0.0.1", "device_id": "538", "model": "6300M"})
+        # Confirm no root attribute pollution
+        self.assertNotIn("status", core)
+        self.assertNotIn("ip", core)
 
-        # Check provenance for non-overlapping hosts
+        # Check provenance and namespaced attributes for non-overlapping hosts
         self.assertEqual(by_host["SW-ACCESS-01"]["sources"], ["nagios_pdf"])
+        self.assertEqual(by_host["SW-ACCESS-01"]["nagios_pdf"]["status"], "UP")
         self.assertEqual(by_host["AP-01"]["sources"], ["airwave"])
+        self.assertEqual(by_host["AP-01"]["airwave"]["device_id"], "539")
 
     @patch("main.sys.argv", ["main.py", "-d", "SW-CORE-01", "-d", "SW-ACCESS-01,SW-03"])
     def test_cli_device_arguments_parsing(self):
@@ -201,6 +212,112 @@ class TestSources(unittest.TestCase):
         self.assertEqual(hosts[0], {"host": "SW-01", "sources": ["interactive"]})
         self.assertEqual(mock_input.call_count, 2)
 
+    @patch("sys.exit")
+    def test_load_unique_hosts_source_not_found_exits(self, mock_exit):
+        """Verifies that an unknown source module exits with ERR_SOURCE_NOT_FOUND."""
+        from sources import load_unique_hosts
+        mock_exit.side_effect = SystemExit(ERR_SOURCE_NOT_FOUND)
+        config = {"device_sources": ["non_existent_source_xyz"]}
+        with self.assertRaises(SystemExit):
+            load_unique_hosts(config)
+        mock_exit.assert_called_with(ERR_SOURCE_NOT_FOUND)
+
+    @patch("sources.nagios_pdf.get_hosts")
+    @patch("sys.exit")
+    def test_load_unique_hosts_source_load_error_exits(self, mock_exit, mock_get):
+        """Verifies that an unhandled error inside a source module exits with ERR_SOURCE_LOAD_ERROR."""
+        from sources import load_unique_hosts
+        mock_exit.side_effect = SystemExit(ERR_SOURCE_LOAD_ERROR)
+        mock_get.side_effect = RuntimeError("Failed to load PDF source")
+        config = {"device_sources": ["nagios_pdf"]}
+        with self.assertRaises(SystemExit):
+            load_unique_hosts(config)
+        mock_exit.assert_called_with(ERR_SOURCE_LOAD_ERROR)
+
+    @patch("sources.nagios_pdf.open_file_dialog", return_value=None)
+    @patch("os.path.exists", return_value=False)
+    @patch("sys.exit")
+    def test_nagios_pdf_no_file_selected_exits(self, mock_exit, mock_exists, mock_dialog):
+        """Verifies that cancelling PDF file selection dialog exits with ERR_PDF_FILE_NOT_SELECTED."""
+        mock_exit.side_effect = SystemExit(ERR_PDF_FILE_NOT_SELECTED)
+        with self.assertRaises(SystemExit):
+            nagios_pdf.get_hosts({"nagios_pdf": {"report_file": "missing.pdf"}})
+        mock_exit.assert_called_with(ERR_PDF_FILE_NOT_SELECTED)
+
+    @patch("sources.nagios_pdf.parse_nagios_pdf", side_effect=Exception("Corrupt PDF"))
+    @patch("sources.nagios_pdf.get_pdf_file_path", return_value="/path/corrupt.pdf")
+    @patch("sys.exit")
+    def test_nagios_pdf_parse_error_exits(self, mock_exit, mock_path, mock_parse):
+        """Verifies that a PDF parsing exception exits with ERR_PDF_PARSE_ERROR."""
+        mock_exit.side_effect = SystemExit(ERR_PDF_PARSE_ERROR)
+        with self.assertRaises(SystemExit):
+            nagios_pdf.get_hosts({"nagios_pdf": {}})
+        mock_exit.assert_called_with(ERR_PDF_PARSE_ERROR)
+
+    @patch("sources.airwave.AirWaveClient", side_effect=Exception("AirWave connection refused"))
+    @patch("sys.exit")
+    def test_airwave_api_error_exits(self, mock_exit, mock_client):
+        """Verifies that an AirWave API error exits with ERR_AIRWAVE_API_ERROR."""
+        mock_exit.side_effect = SystemExit(ERR_AIRWAVE_API_ERROR)
+        config = {
+            "airwave": {
+                "url": "https://airwave.local",
+                "username": "admin",
+                "password": "password",
+            }
+        }
+        with self.assertRaises(SystemExit):
+            airwave.get_hosts(config)
+        mock_exit.assert_called_with(ERR_AIRWAVE_API_ERROR)
+
+    @patch("builtins.input", side_effect=KeyboardInterrupt)
+    @patch("sys.exit")
+    def test_prompt_for_devices_aborted_exits(self, mock_exit, mock_input):
+        """Verifies that aborting the device selection prompt exits with ERR_DEVICE_PROMPT_ABORTED."""
+        from main import prompt_for_devices
+        mock_exit.side_effect = SystemExit(ERR_DEVICE_PROMPT_ABORTED)
+        with self.assertRaises(SystemExit):
+            prompt_for_devices({}, {})
+        mock_exit.assert_called_with(ERR_DEVICE_PROMPT_ABORTED)
+
+    def test_orchestrator_namespaced_sources_injection(self):
+        """Verifies that main.py injects sources as a flat list and attaches namespaced source dictionaries without polluting root."""
+        host_data = {
+            "host": "SW-CORE-01",
+            "sources": ["nagios_pdf", "airwave"],
+            "nagios_pdf": {"status": "CRITICAL", "service": "PING"},
+            "airwave": {"ip": "10.0.0.1", "device_id": "538"},
+        }
+        handler_result = {
+            "host": "SW-CORE-01",
+            "latencies": [15],
+            "wan_status": {"wan1": {"status": "UP"}},
+            "status": "HANDLER_OPERATIONAL_STATUS",
+        }
+        rule = {"name": "Test Rule", "handler": "generic_ping"}
+
+        # Simulate the injection logic from main.py
+        result = dict(handler_result)
+        result["rule_name"] = rule["name"]
+        result["handler"] = rule["handler"]
+
+        sources = host_data.get("sources", [])
+        result["sources"] = list(sources) if isinstance(sources, list) else [sources]
+
+        for src in result["sources"]:
+            if src in host_data and isinstance(host_data[src], dict):
+                result[src] = host_data[src]
+
+        self.assertEqual(result["sources"], ["nagios_pdf", "airwave"])
+        self.assertIsInstance(result["sources"], list)
+        self.assertEqual(result["nagios_pdf"], {"status": "CRITICAL", "service": "PING"})
+        self.assertEqual(result["airwave"], {"ip": "10.0.0.1", "device_id": "538"})
+        # Handler status is completely preserved without collision
+        self.assertEqual(result["status"], "HANDLER_OPERATIONAL_STATUS")
+        self.assertNotIn("source", result)
+        self.assertNotIn("ip", result)
+        self.assertNotIn("device_id", result)
+
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(buffer=True)

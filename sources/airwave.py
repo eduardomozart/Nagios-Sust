@@ -1,5 +1,6 @@
 import sys
 from utils.airwave import AirWaveClient
+from utils.exit_codes import ERR_AIRWAVE_API_ERROR
 
 
 def get_hosts(config, options=None):
@@ -60,4 +61,4 @@ def get_hosts(config, options=None):
         return alerts
     except Exception as e:
         print(f"Error enumerating AirWave devices: {e}")
-        sys.exit(1)
+        sys.exit(ERR_AIRWAVE_API_ERROR)

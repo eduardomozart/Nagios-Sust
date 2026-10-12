@@ -55,4 +55,4 @@ Memory   - Total   : 200
         self.assertTrue(callable(aruba_mod.handle))
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(buffer=True)

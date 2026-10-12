@@ -36,4 +36,4 @@ class TestGenericPingHandler(unittest.TestCase):
         self.assertEqual(res["latencies"], [25])
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(buffer=True)

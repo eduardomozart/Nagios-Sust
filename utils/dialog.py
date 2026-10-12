@@ -34,6 +34,9 @@ def open_file_dialog(title="Select File", file_filter="All files (*.*)\0*.*\0\0"
     Opens a native Windows file selection dialog.
     Returns the absolute path to the selected file, or None if cancelled.
     """
+    if not hasattr(ctypes, "windll"):
+        return None
+
     MAX_PATH = 260
     
     ofn = OPENFILENAMEW()

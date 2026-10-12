@@ -6,6 +6,7 @@ import getpass
 import re
 
 from utils.config import load_config
+from utils.exit_codes import ERR_DEVICE_PROMPT_ABORTED
 
 VERSION = "DEV_BUILD"
 
@@ -41,7 +42,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=f"Nagios-Sust {VERSION} - Evidence Collector")
     parser.add_argument(
         "-c", "--config",
-        default="config.yaml",
+        default=None,
         help="Path to YAML configuration file (default: config.yaml)"
     )
     parser.add_argument(
@@ -101,7 +102,7 @@ def prompt_for_devices(config, source_options):
             user_input = input("Enter source(s) or device name(s) (comma-separated, e.g. 'SW-01, SW-02'): ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nAborted.")
-            sys.exit(0)
+            sys.exit(ERR_DEVICE_PROMPT_ABORTED)
 
         if not user_input:
             print("Error: No devices or source provided. Please try again.\n")
@@ -214,11 +215,20 @@ def main():
                 handler_module = importlib.import_module(f"handlers.{handler_name}")
                 result = handler_module.handle(host, host_data, options)
                 
-                # Inject the rule name and handler into the result so it can be used in exporters/templates
+                # Inject rule metadata, sources flat list, and namespaced source dictionaries
                 if isinstance(result, dict):
                     result["rule_name"] = rule["name"]
                     result["handler"] = handler_name
-                    
+
+                    # Ensure sources is explicitly a flat list of strings
+                    sources = host_data.get("sources", [])
+                    result["sources"] = list(sources) if isinstance(sources, list) else [sources]
+
+                    # Inject namespaced source sub-dictionaries (res.<SOURCE>) into result
+                    for src in result["sources"]:
+                        if src in host_data and isinstance(host_data[src], dict):
+                            result[src] = host_data[src]
+
                 results.append(result)
             except ImportError:
                 print(f"Error: Handler '{handler_name}' not found in handlers/")

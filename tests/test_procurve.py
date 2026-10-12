@@ -107,4 +107,4 @@ Memory   - Total   : 100
         self.assertTrue(callable(procurve_mod.handle))
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(buffer=True)

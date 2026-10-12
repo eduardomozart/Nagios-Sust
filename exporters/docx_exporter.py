@@ -1,7 +1,13 @@
 import os
 import sys
-from docxtpl import DocxTemplate, InlineImage
-from docx.shared import Inches
+try:
+    from docxtpl import DocxTemplate, InlineImage
+    from docx.shared import Inches
+except ImportError:
+    DocxTemplate = None
+    InlineImage = None
+    Inches = None
+from utils.exit_codes import ERR_DOCX_RENDER_ERROR
 
 def get_base_dir():
     if getattr(sys, 'frozen', False):
@@ -117,7 +123,7 @@ def export(results, config):
             print(f"    Details: {e}")
             _diagnose_template_error(template_path)
             print("\nAborting execution due to template error.")
-            sys.exit(1)
+            sys.exit(ERR_DOCX_RENDER_ERROR)
             
         doc = DocxTemplate(template_path)
         
@@ -129,6 +135,15 @@ def export(results, config):
         for res in results:
             res_context = dict(res)
             
+            # Ensure sources is always present as a list of strings
+            sources = res.get("sources", [])
+            res_context["sources"] = list(sources) if isinstance(sources, list) else [sources]
+
+            # Ensure namespaced source sub-dictionaries (res.<SOURCE>) are present
+            for src in res_context["sources"]:
+                if src not in res_context or not isinstance(res_context[src], dict):
+                    res_context[src] = res.get(src, {}) if isinstance(res.get(src), dict) else {}
+
             host = res.get("host", "Unknown")
             wan_stats = res.get("wan_status", {})
             

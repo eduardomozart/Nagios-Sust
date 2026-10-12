@@ -3,6 +3,7 @@ import sys
 from utils.pdf_parser import parse_nagios_pdf
 from utils.dialog import open_file_dialog
 from utils.airwave import filter_device_name
+from utils.exit_codes import ERR_PDF_FILE_NOT_SELECTED, ERR_PDF_PARSE_ERROR
 
 
 def get_pdf_file_path(default_path):
@@ -19,7 +20,7 @@ def get_pdf_file_path(default_path):
 
     if not file_path:
         print("No file selected. Exiting.")
-        sys.exit(1)
+        sys.exit(ERR_PDF_FILE_NOT_SELECTED)
 
     return file_path
 
@@ -42,7 +43,7 @@ def get_hosts(config, options=None):
         alerts = parse_nagios_pdf(pdf_path)
     except Exception as e:
         print(f"Error parsing PDF: {e}")
-        sys.exit(1)
+        sys.exit(ERR_PDF_PARSE_ERROR)
 
     # Optional host_filter applied to PDF extracted hosts
     host_filter = pdf_cfg.get("host_filter")
