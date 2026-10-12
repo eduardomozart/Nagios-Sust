@@ -119,7 +119,7 @@ class TestMainOrchestrator(unittest.TestCase):
         }
 
         # Multi-rule execution simulation matching main.py logic
-        host_obj = {"name": host}
+        host_obj = {"name": host, "alerts": []}
         rules_list = []
         handlers_obj = {}
         sources_list = host_data.get("sources", [])
@@ -158,8 +158,64 @@ class TestMainOrchestrator(unittest.TestCase):
         self.assertEqual(cumulative_item["handlers"]["generic_ping"]["error"], 0)
         self.assertEqual(cumulative_item["handlers"]["procurve"]["system_info"]["version"], "WC.16.11.0027")
         self.assertEqual(cumulative_item["handlers"]["procurve"]["error"], 0)
-        # Verify host remains strictly identity
-        self.assertEqual(cumulative_item["host"], {"name": "SW-CORE-01"})
+        self.assertEqual(cumulative_item["host"]["name"], "SW-CORE-01")
+        self.assertEqual(cumulative_item["host"]["alerts"], [])
+        self.assertNotIn("alerts", cumulative_item)
+
+    def test_orchestrator_handler_alerts_collection_onto_host(self):
+        """Verifies alerts from handlers are collected on host.alerts with handler attribution and not stored in handlers."""
+        host = "SW-CORE-01"
+        host_obj = {"name": host, "alerts": []}
+        handlers_obj = {}
+
+        # Simulate handler result emitting alerts
+        handler_name = "procurve"
+        raw_result = {
+            "error": 0,
+            "system_info": {"version": "WC.16.11.0027"},
+            "alerts": [
+                {
+                    "severity": "CRITICAL",
+                    "type": "fan",
+                    "component": "Fan 1",
+                    "message": "Fan 1: Failed",
+                    "status": "Failed",
+                }
+            ],
+        }
+
+        handler_entry = {"error": int(raw_result.get("error", 0))}
+        if "alerts" in raw_result and isinstance(raw_result["alerts"], list):
+            for alert_item in raw_result["alerts"]:
+                if isinstance(alert_item, dict):
+                    alert_dict = dict(alert_item)
+                    if "handler" not in alert_dict:
+                        alert_dict["handler"] = handler_name
+                    host_obj["alerts"].append(alert_dict)
+
+        handlers_obj[handler_name] = handler_entry
+
+        cumulative_item = {
+            "host": host_obj,
+            "rules": ["Core Switches"],
+            "handlers": handlers_obj,
+            "sources": {"list": []},
+        }
+
+        # Verify alerts stored on host_obj with handler attribution
+        self.assertEqual(len(cumulative_item["host"]["alerts"]), 1)
+        alert = cumulative_item["host"]["alerts"][0]
+        self.assertEqual(alert["handler"], "procurve")
+        self.assertEqual(alert["severity"], "CRITICAL")
+        self.assertEqual(alert["type"], "fan")
+        self.assertEqual(alert["component"], "Fan 1")
+        self.assertEqual(alert["status"], "Failed")
+
+        # Verify handlers_obj does NOT contain alerts
+        self.assertNotIn("alerts", handlers_obj["procurve"])
+
+        # Verify cumulative_item does NOT have top-level alerts alias
+        self.assertNotIn("alerts", cumulative_item)
 
     def test_orchestrator_handler_latency_parsing(self):
         """Verifies main.py parses handler latency, preserving None on failure, and does not create root latency."""

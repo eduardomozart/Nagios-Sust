@@ -20,13 +20,14 @@ class TestGenericPingHandler(unittest.TestCase):
 
         self.assertEqual(res["host"], "test-router")
         self.assertEqual(res["latency"], 15)
+        self.assertEqual(res["alerts"], [])
         self.assertNotIn("screenshot", res)
         self.assertEqual(res["error"], 0)
 
     @patch("handlers.generic_ping.ping_with_output")
     @patch("handlers.generic_ping.socket.gethostbyname")
     def test_execute_generic_ping_timeout(self, mock_gethostbyname, mock_ping_with_output):
-        """Verifies execute_generic_ping returns -3 and ERR_PING_TIMEOUT on failure."""
+        """Verifies execute_generic_ping returns -3 and ERR_PING_TIMEOUT on failure, appending a CRITICAL alert."""
         mock_gethostbyname.return_value = "192.0.2.1"
         mock_ping_with_output.return_value = ("", "Request timed out")
 
@@ -36,6 +37,14 @@ class TestGenericPingHandler(unittest.TestCase):
         self.assertEqual(res["host"], "test-router")
         self.assertIsNone(res["latency"])
         self.assertEqual(res["error"], 3)
+        self.assertEqual(len(res["alerts"]), 1)
+        alert = res["alerts"][0]
+        self.assertEqual(alert["handler"], "generic_ping")
+        self.assertEqual(alert["severity"], "CRITICAL")
+        self.assertEqual(alert["type"], "ping")
+        self.assertEqual(alert["component"], "ICMP")
+        self.assertEqual(alert["status"], "Timeout")
+        self.assertIn("192.0.2.1", alert["message"])
 
     @patch("handlers.generic_ping.ping_with_output")
     @patch("handlers.generic_ping.socket.gethostbyname")
@@ -49,6 +58,7 @@ class TestGenericPingHandler(unittest.TestCase):
 
         self.assertEqual(res["host"], "test-host")
         self.assertEqual(res["latency"], 25)
+        self.assertEqual(res["alerts"], [])
         self.assertEqual(res["error"], 0)
 
     @patch("handlers.generic_ping.ping_with_output")

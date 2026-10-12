@@ -63,6 +63,104 @@ Chassis Serial Nbr     : SG0000000001
         res = arubacx_mod.handle("SW-CORE-01", {}, {"username": "admin", "password": "x"})
         self.assertEqual(res["error"], ERR_CONNECTION_TIMEOUT)
 
+    def test_aoscx_environment_parsing_normal(self):
+        """Verifies parse_aoscx_environment returns empty list when all sensors and fans are normal."""
+        output = """
+-------------------------------------------------------------------------------
+Sensor Temperature Information
+-------------------------------------------------------------------------------
+Sensor  Location              Temperature   Status
+-------------------------------------------------------------------------------
+1/1     chassis               32.5C         normal
+1/2     management-module     41.0C         normal
+
+-------------------------------------------------------------------------------
+Fan Information
+-------------------------------------------------------------------------------
+Fan       Speed(rpm)   Airflow          Status
+-------------------------------------------------------------------------------
+1/1/1     4500         front-to-back    normal
+1/1/2     4550         front-to-back    ok
+
+-------------------------------------------------------------------------------
+PSU Information
+-------------------------------------------------------------------------------
+PSU     Watts   Status
+-------------------------------------------------------------------------------
+1/1     500W    normal
+1/2     500W    ok
+"""
+        alerts = arubacx_mod.parse_aoscx_environment(output)
+        self.assertEqual(alerts, [])
+
+    def test_aoscx_environment_parsing_faults(self):
+        """Verifies parse_aoscx_environment emits structured alerts for fan, temp, and PSU failures."""
+        output = """
+Sensor Temperature Information
+Sensor  Location              Temperature   Status
+1/1     chassis               85.0C         critical
+1/2     line-card             65.0C         alert
+
+Fan Information
+Fan       Speed(rpm)   Airflow          Status
+1/1/1     0            front-to-back    failed
+
+PSU Information
+PSU     Watts   Status
+1/1     0W      fault
+"""
+        alerts = arubacx_mod.parse_aoscx_environment(output, handler_name="arubacx")
+        self.assertEqual(len(alerts), 4)
+
+        # Temp 1/1 critical
+        a_temp1 = alerts[0]
+        self.assertEqual(a_temp1["handler"], "arubacx")
+        self.assertEqual(a_temp1["severity"], "CRITICAL")
+        self.assertEqual(a_temp1["type"], "temperature")
+        self.assertEqual(a_temp1["component"], "Sensor 1/1")
+        self.assertEqual(a_temp1["status"], "critical")
+
+        # Temp 1/2 warning (alert)
+        a_temp2 = alerts[1]
+        self.assertEqual(a_temp2["severity"], "WARNING")
+        self.assertEqual(a_temp2["type"], "temperature")
+
+        # Fan 1/1/1 failed
+        a_fan = alerts[2]
+        self.assertEqual(a_fan["handler"], "arubacx")
+        self.assertEqual(a_fan["severity"], "CRITICAL")
+        self.assertEqual(a_fan["type"], "fan")
+        self.assertEqual(a_fan["component"], "Fan 1/1/1")
+        self.assertEqual(a_fan["status"], "failed")
+
+        # PSU 1/1 fault
+        a_psu = alerts[3]
+        self.assertEqual(a_psu["handler"], "arubacx")
+        self.assertEqual(a_psu["severity"], "CRITICAL")
+        self.assertEqual(a_psu["type"], "power_supply")
+        self.assertEqual(a_psu["component"], "PSU 1/1")
+        self.assertEqual(a_psu["status"], "fault")
+
+    def test_aoscx_handle_execution_with_environment(self):
+        """Verifies arubacx handle parses environment and populates alerts list."""
+        output = """SW-CORE-01# show system
+Hostname               : SW-CORE-01
+Product Name           : R0X24C 6405 v2 Chassis
+AOS-CX Version         : FL.10.16.1020
+Up Time                : 10 days
+CPU Util (%)           : 12
+Memory Usage (%)       : 20
+Chassis Serial Nbr     : SG0000000001
+SW-CORE-01# show environment
+Fan Information
+Fan       Speed(rpm)   Airflow          Status
+1/1/1     0            front-to-back    failed
+"""
+        res = arubacx_mod.handle("SW-CORE-01", {}, {}, pre_collected_output=output)
+        self.assertEqual(res["error"], 0)
+        self.assertEqual(len(res["alerts"]), 1)
+        self.assertEqual(res["alerts"][0]["type"], "fan")
+        self.assertEqual(res["alerts"][0]["status"], "failed")
 
 if __name__ == "__main__":
     unittest.main(buffer=True)

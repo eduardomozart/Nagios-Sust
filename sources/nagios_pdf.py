@@ -31,7 +31,7 @@ def get_pdf_file_path(default_path):
 
 def get_hosts(config, options=None):
     """
-    Ingests hosts and alerts from a Nagios Service Status PDF report.
+    Ingests hosts from a Nagios Service Status PDF report.
     """
     base_dir = options.get("base_dir", os.getcwd()) if options else os.getcwd()
     pdf_cfg = config.get("nagios_pdf", {})
@@ -44,7 +44,7 @@ def get_hosts(config, options=None):
 
     print(f"Parsing PDF: {pdf_path}")
     try:
-        alerts = parse_nagios_pdf(pdf_path)
+        hosts = parse_nagios_pdf(pdf_path)
     except Exception as e:
         print(f"Error parsing PDF: {e}")
         sys.exit(ERR_PDF_PARSE_ERROR)
@@ -52,7 +52,7 @@ def get_hosts(config, options=None):
     # Optional host_filter applied to PDF extracted hosts
     host_filter = pdf_cfg.get("host_filter")
     if host_filter:
-        alerts = [a for a in alerts if filter_device_name(a.get("host"), host_filter)]
+        hosts = [h for h in hosts if filter_device_name(h.get("host"), host_filter)]
 
-    print(f"Found {len(alerts)} unique hosts in the PDF.")
-    return alerts
+    print(f"Found {len(hosts)} unique hosts in the PDF.")
+    return hosts

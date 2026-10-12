@@ -9,7 +9,7 @@ def parse_nagios_pdf(pdf_path):
             "The 'pdfplumber' library is required to parse Nagios PDF reports.\n"
             "Please install it with: pip install pdfplumber"
         )
-    alerts = []
+    parsed_hosts = []
     
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
@@ -46,7 +46,7 @@ def parse_nagios_pdf(pdf_path):
                             status = col_str
                             break
                             
-                    alerts.append({
+                    parsed_hosts.append({
                         "host": host_cleaned,
                         "service": "",
                         "status": status,
@@ -55,8 +55,8 @@ def parse_nagios_pdf(pdf_path):
                             
     # Return a deduplicated list by host (so we only run once per equipment)
     unique_hosts = {}
-    for alert in alerts:
-        if alert["host"] not in unique_hosts:
-            unique_hosts[alert["host"]] = alert
+    for item in parsed_hosts:
+        if item["host"] not in unique_hosts:
+            unique_hosts[item["host"]] = item
             
     return list(unique_hosts.values())

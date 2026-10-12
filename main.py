@@ -199,6 +199,7 @@ def main():
 
         host_obj = {
             "name": host,
+            "alerts": [],
         }
         rules_list = []
         handlers_obj = {}
@@ -260,6 +261,15 @@ def main():
                         handler_entry["system_info"] = result["system_info"]
                     if "screenshot" in result and result["screenshot"]:
                         handler_entry["screenshot"] = result["screenshot"]
+
+                    # Collect alerts onto host_obj with handler attribution; do not store in handler_entry
+                    if "alerts" in result and isinstance(result["alerts"], list):
+                        for alert_item in result["alerts"]:
+                            if isinstance(alert_item, dict):
+                                alert_dict = dict(alert_item)
+                                if "handler" not in alert_dict:
+                                    alert_dict["handler"] = handler_name
+                                host_obj["alerts"].append(alert_dict)
 
                     handlers_obj[handler_name] = handler_entry
 

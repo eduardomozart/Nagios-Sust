@@ -135,6 +135,8 @@ def export(results, config):
         for res in results:
             host_val = res.get("host", {})
             host_obj = dict(host_val) if isinstance(host_val, dict) else {"name": str(host_val)}
+            if "alerts" not in host_obj or not isinstance(host_obj["alerts"], list):
+                host_obj["alerts"] = []
 
             rules_val = res.get("rules", [])
             if isinstance(rules_val, list):

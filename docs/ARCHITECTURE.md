@@ -23,23 +23,23 @@ The orchestrator drives the execution flow:
 - Evaluates rules sequentially: when a host matches multiple rules, all matching handlers run in order, accumulating into **one unified result entry per host** structured strictly under the 4 subsystem domains: `host`, `rules`, `handlers`, and `sources`.
 
 ### 3. Modular Sources & Multi-Source Aggregation (`sources/`)
-Device and alert discovery is decoupled into pluggable source modules:
-- **Nagios PDF (`sources/nagios_pdf.py`)**: Resolves Nagios Service Status PDF reports (prompting via a native UI dialog via [`crossfiledialog`](https://github.com/maikelwever/crossfiledialog) if the file is missing), parses tabular alerts via `utils/pdf_parser.py`, and applies optional host filtering.
+Device discovery is decoupled into pluggable source modules that query upstream systems and return deduplicated `hosts`:
+- **Nagios PDF (`sources/nagios_pdf.py`)**: Resolves Nagios Service Status PDF reports (prompting via a native UI dialog via [`crossfiledialog`](https://github.com/maikelwever/crossfiledialog) if the file is missing), parses tabular host records via `utils/pdf_parser.py`, and applies optional host filtering.
 - **AirWave (`sources/airwave.py`)**: Connects to the Aruba AirWave API via `utils/airwave.py` and `pyairwave`, enumerating devices filtered by `host_filter` (`startswith` / `regex`), device categories, and hardware models.
 
 When multiple sources are configured (e.g. `device_sources: ["nagios_pdf", "airwave"]`), `sources.load_unique_hosts` queries each source and canonicalizes host records (case-insensitively). Overlapping devices are merged into a single unique host object housing each source's discovery attributes cleanly under its source key in `sources.<SOURCE>` and tracking source provenance in `sources.list` as a flat list of strings.
 
 ### 4. Modular Handlers (`handlers/`)
-Handlers are specific Python scripts designed to interact with different types of equipment. To add a new equipment type (e.g., Cisco, CheckPoint), a developer simply creates a new handler file and maps it in the YAML config. Handlers return only the data they actually collect along with a standard integer error code:
+Handlers are specific Python scripts designed to interact with different types of equipment. To add a new equipment type (e.g., Cisco, CheckPoint), a developer simply creates a new handler file and maps it in the YAML config. Handlers return collected telemetry, metrics, and domain-specific `alerts` along with a standard integer error code:
 
-- **FortiGate (`fortigate.py`)**: Uses `selenium` to log into the FortiOS web interface. It parses the DOM for the `login_button` and dynamically queries the `portgroup` table to extract the link status of `WAN1` and `WAN2` into `if_status`. It saves a visual screenshot of the interface as evidence and scrapes the Dashboard System Information widget into `system_info`.
-- **Aruba Switches (`aruba.py`)**: Connects over SSH via `paramiko` and inspects `show system` output to automatically detect whether the device is running **AOS-CX** or **ProCurve**, then delegates execution to the corresponding handler (`arubacx.py` or `procurve.py`), which can also be invoked directly. Both extract model, firmware version, serial number, uptime, CPU utilization, and calculate memory usage percentages (including VSF stack members) into `system_info`.
+- **FortiGate (`fortigate.py`)**: Uses `selenium` to log into the FortiOS web interface. It parses the DOM for the `login_button` and dynamically queries the `portgroup` table to extract the link status of `WAN1` and `WAN2` into `if_status`. It saves a visual screenshot of the interface as evidence, scrapes the Dashboard System Information widget into `system_info`, and emits `CRITICAL` alerts if monitored WAN links are down or pings fail.
+- **Aruba Switches (`aruba.py`)**: Connects over SSH via `paramiko` and inspects `show system` output to automatically detect whether the device is running **AOS-CX** or **ProCurve**, then delegates execution to the corresponding handler (`arubacx.py` or `procurve.py`), which can also be invoked directly. Both extract model, firmware version, serial number, uptime, CPU utilization, and calculate memory usage percentages (including VSF stack members) into `system_info`. They also execute `show environment` to inspect fans, temperature sensors, and power supplies, emitting structured `CRITICAL` / `WARNING` alerts for any hardware faults.
 - **AirWave (`airwave.py`)**: Automates Aruba AirWave WebUI login via `selenium`, navigates to the Device Monitoring page (`/ap_monitoring?id={device_id}`), dynamically adapts window width to capture the entire Device Info table without horizontal clipping, and parses inventory attributes into `system_info`. Resolves device IDs using `utils/airwave.py` via `pyairwave`.
-- **Generic Ping (`generic_ping.py`)**: Centralizes all low-level ICMP ping commands (`ping_with_output`) across platforms with configurable packet count (`count`). Exposes `execute_generic_ping` as a reusable helper for any handler requiring network latency checks (e.g. FortiGate interface pings with `source: host`), returning `latency` and an optional `screenshot`.
+- **Generic Ping (`generic_ping.py`)**: Centralizes all low-level ICMP ping commands (`ping_with_output`) across platforms with configurable packet count (`count`). Exposes `execute_generic_ping` as a reusable helper for any handler requiring network latency checks (e.g. FortiGate interface pings with `source: host`), returning `latency`, an optional `screenshot`, and emitting `CRITICAL` alerts on timeout or unreachable destination.
 
 ### 5. Modular Exporters (`exporters/`)
 Once all handlers have finished executing, the cumulative results are passed to the exporters.
-- **Docx Exporter (`docx_exporter.py`)**: Injects collected evidence into the Word template across all configured languages (`template_<lang>.docx`) and injects `docxtpl.InlineImage` instances into `handlers.<HANDLER>.screenshot.image` for rendered reports.
+- **Docx Exporter (`docx_exporter.py`)**: Injects collected evidence into the Word template across all configured languages (`template_<lang>.docx`), exposes `res.host.alerts` for table rendering, and injects `docxtpl.InlineImage` instances into `handlers.<HANDLER>.screenshot.image` for rendered reports.
 
 ### 6. Build and Distribution
 To simplify deployment for users without a Python environment, the application is compiled into a standalone Windows executable.
@@ -50,10 +50,27 @@ To simplify deployment for users without a Python environment, the application i
 
 ### Cumulative Subsystem Namespacing Contract
 To ensure architectural cleanliness, prevent namespace pollution, and support cumulative multi-rule execution without collisions, evidence is segregated into 4 clean domains:
-1. **`res.host`**: Dedicated exclusively to host identity (`name`). Telemetry and status data never pollute the host root.
+1. **`res.host`**: Houses host identity (`res.host.name`) and the unified host-level alerts collection (`res.host.alerts`). Each alert in `res.host.alerts` includes a `handler` attribute identifying which handler generated the alert.
 2. **`res.rules`**: Tracks all matched and executed rules as a direct list of rule names (`res.rules`), allowing direct iteration and joining in Word templates.
-3. **`res.handlers`**: All execution evidence is strictly isolated under `res.handlers.<HANDLER>`. Hardware telemetry (`system_info`) and ping latency (`latency`) are isolated per handler, ensuring multiple handlers running against the same host never overwrite or conflict with each other.
+3. **`res.handlers`**: All execution evidence is strictly isolated under `res.handlers.<HANDLER>`. Hardware telemetry (`system_info`), ping latency (`latency`), and interface metrics (`if_status`) are isolated per handler without duplicating alerts inside handler objects.
 4. **`res.sources`**: Discovery attributes are preserved under `res.sources.<SOURCE>` with discovery provenance tracked in `res.sources.list`.
+
+### Unified Handler Alerts Architecture (`res.host.alerts`)
+Warnings and critical errors detected during handler execution are reported through a standardized alert dictionary contract and consolidated directly on `res.host.alerts`:
+- **Schema**:
+  - `handler`: Identifier of the originating handler (`"generic_ping"`, `"arubacx"`, `"procurve"`, `"fortigate"`).
+  - `severity`: Alert severity level (`"CRITICAL"` or `"WARNING"`).
+  - `type`: Category of the alert (`"ping"`, `"temperature"`, `"fan"`, `"power_supply"`, `"interface"`, `"device"`, `"ssh"`).
+  - `component`: Component identifier or label (`"ICMP"`, `"Fan 2"`, `"Sensor 1/3"`, `"WAN1"`).
+  - `message`: Descriptive human-readable explanation (e.g. `"Ping timeout or unreachable (10.0.0.1)"`, `"Fan 2: Failed"`).
+  - `status`: Device/subsystem state string (`"Timeout"`, `"Failed"`, `"Critical"`, `"DOWN"`).
+- **Word Template Table Integration**:
+  Word report templates (`template.docx`) can directly iterate through `res.host.alerts` in summary tables:
+  ```jinja2
+  {%tr for res in results %}
+  | {{ res.host.name }} | {% if res.host.alerts %}{% for alert in res.host.alerts %}[{{ alert.severity }}] {{ alert.message }} ({{ alert.handler }}){% if not loop.last %}<w:br/>{% endif %}{% endfor %}{% else %}Normal{% endif %} |
+  {%tr endfor %}
+  ```
 
 ### Standardized Numeric Error Codes (`utils/error_codes.py`)
 Handlers return standardized integer error codes (`0` for `ERR_OK`, `1`..`8` for specific failure modes). This separates execution outcomes from presentation language, allowing Word templates in any language (`template_en.docx`, `template_pt-BR.docx`) to conditionally render localized error explanations without hardcoded string parsing. Furthermore, when a ping test fails or times out, the `latency` field is set to `None`, while successful pings return an integer millisecond latency (`>= 0`). If pinging was disabled on an interface, the `latency` key is omitted entirely, providing an unambiguous tri-state model (`is not defined`, `is none`, and positive integer).

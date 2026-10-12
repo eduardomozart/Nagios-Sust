@@ -848,7 +848,7 @@ def _extract_system_info(driver, host, options):
         "members": []
     }
 
-def handle(host, alert_info, options):
+def handle(host, host_data, options):
     url = options.get("url_template", "https://{host}/ng/interface").format(host=host)
     
     username = options.get("username")
@@ -879,6 +879,7 @@ def handle(host, alert_info, options):
         "host": host,
         "url": url,
         "error": ERR_OK,
+        "alerts": [],
     }
 
     try:
@@ -991,21 +992,50 @@ def handle(host, alert_info, options):
             lat = intf_data.get("latency")
             
             # 1. 0.0.0.0 (Logical down)
-            if ip == "0.0.0.0" and error_code == ERR_OK:
-                error_code = ERR_IF_LOGICAL_DOWN
+            if ip == "0.0.0.0":
+                if error_code == ERR_OK:
+                    error_code = ERR_IF_LOGICAL_DOWN
+                result["alerts"].append({
+                    "handler": "fortigate",
+                    "severity": "CRITICAL",
+                    "type": "interface",
+                    "component": intf_key,
+                    "message": f"Interface {intf_key} has 0.0.0.0 IP (logical down)",
+                    "status": "0.0.0.0",
+                })
                 
             # 2. Monitored interface is DOWN with an assigned IP address
-            if "DOWN" in status and ip and ip != "0.0.0.0" and error_code == ERR_OK:
-                error_code = ERR_IF_DOWN
+            if "DOWN" in status and ip and ip != "0.0.0.0":
+                if error_code == ERR_OK:
+                    error_code = ERR_IF_DOWN
+                result["alerts"].append({
+                    "handler": "fortigate",
+                    "severity": "CRITICAL",
+                    "type": "interface",
+                    "component": intf_key,
+                    "message": f"Interface {intf_key} link is DOWN",
+                    "status": "DOWN",
+                })
                 
             # 3. Ping gateway or interface was requested, but failed (timeout or error)
-            if intf_data.get("ping_interface") and lat is None and error_code == ERR_OK:
+            if intf_data.get("ping_interface") and lat is None:
                 if ip == "0.0.0.0":
-                    error_code = ERR_IF_LOGICAL_DOWN
+                    if error_code == ERR_OK:
+                        error_code = ERR_IF_LOGICAL_DOWN
                 elif "DOWN" in status:
-                    error_code = ERR_IF_DOWN
+                    if error_code == ERR_OK:
+                        error_code = ERR_IF_DOWN
                 else:
-                    error_code = ERR_PING_TIMEOUT
+                    if error_code == ERR_OK:
+                        error_code = ERR_PING_TIMEOUT
+                result["alerts"].append({
+                    "handler": "fortigate",
+                    "severity": "CRITICAL",
+                    "type": "ping",
+                    "component": f"{intf_key} Ping",
+                    "message": f"Ping timeout on interface {intf_key} ({intf_data.get('ping_target_ip', '')})",
+                    "status": "Timeout",
+                })
 
         result["error"] = error_code
 
@@ -1019,6 +1049,14 @@ def handle(host, alert_info, options):
             result["error"] = ERR_AUTH_FAILED
         else:
             result["error"] = ERR_AUTOMATION_FAILED
+        result["alerts"].append({
+            "handler": "fortigate",
+            "severity": "CRITICAL",
+            "type": "execution",
+            "component": "FortiGate",
+            "message": f"FortiGate automation error: {e}",
+            "status": "Failed",
+        })
     finally:
         driver.quit()
 

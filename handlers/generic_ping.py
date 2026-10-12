@@ -33,10 +33,10 @@ def ping_with_output(ip_address, count=4, timeout_ms=1000):
     except Exception as e:
         return "", str(e)
 
-def execute_generic_ping(host, alert="", options=None, handler_name="generic_ping", count=None):
+def execute_generic_ping(host, host_data=None, options=None, handler_name="generic_ping", count=None):
     """
     Generic execution logic that resolves the host IP, pings it with configurable count,
-    records latency, and generates a native screenshot if enabled.
+    records latency, emits alerts on failure, and generates a native screenshot if enabled.
     """
     if options is None:
         options = {}
@@ -51,6 +51,7 @@ def execute_generic_ping(host, alert="", options=None, handler_name="generic_pin
         "host": host,
         "latency": None,
         "error": ERR_PING_TIMEOUT,
+        "alerts": [],
     }
     
     print(f"[{host}] Executing ping for {handler_name} (count={ping_count})...")
@@ -72,6 +73,14 @@ def execute_generic_ping(host, alert="", options=None, handler_name="generic_pin
         except ValueError:
             pass
     else:
+        result["alerts"].append({
+            "handler": handler_name,
+            "severity": "CRITICAL",
+            "type": "ping",
+            "component": "ICMP",
+            "message": f"Ping timeout or unreachable ({ip_address})",
+            "status": "Timeout",
+        })
         print(f"[{host}] Ping timeout or unreachable.")
         
     if options.get("capture_screenshot", True):
@@ -109,10 +118,10 @@ def execute_generic_ping(host, alert="", options=None, handler_name="generic_pin
             
     return result
 
-def handle(host, alert, options):
+def handle(host, host_data, options):
     """
     Generic handler that resolves the host IP, pings it 4 times,
     and generates a CMD screenshot of the ping output.
     """
-    return execute_generic_ping(host, alert, options, handler_name="generic_ping")
+    return execute_generic_ping(host, host_data, options, handler_name="generic_ping")
 

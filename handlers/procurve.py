@@ -1,5 +1,6 @@
 import re
 from utils.ssh import run_ssh_command, classify_ssh_error
+from utils.error_codes import ERR_OK
 
 def parse_aoss_system(output):
     """
@@ -103,9 +104,83 @@ def parse_aoss_system(output):
         "members": members
     }
 
-from utils.error_codes import ERR_OK
+def parse_aoss_environment(output, handler_name="procurve"):
+    """
+    Parses 'show environment' output from a ProCurve / ArubaOS-S switch and returns
+    a list of structured alerts for abnormal fans, temperature, and power supplies.
+    """
+    alerts = []
+    if not output:
+        return alerts
 
-def handle(host, alert, options, pre_collected_output=None):
+    current_section = None
+
+    for line in output.splitlines():
+        trimmed = line.strip()
+        if not trimmed or trimmed.startswith("---") or trimmed.startswith("==="):
+            continue
+
+        lower_line = trimmed.lower()
+        if "fan" in lower_line and ("status" in lower_line or "information" in lower_line or lower_line.startswith("fan")):
+            current_section = "fan"
+            if ":" not in trimmed or lower_line.endswith(":") or "status" in lower_line or "information" in lower_line:
+                continue
+        elif "temperature" in lower_line:
+            current_section = "temperature"
+            if ":" not in trimmed or lower_line.endswith(":") or "status" in lower_line or "information" in lower_line:
+                continue
+        elif "power suppl" in lower_line or "psu" in lower_line:
+            current_section = "power_supply"
+            if ":" not in trimmed or lower_line.endswith(":") or "status" in lower_line or "information" in lower_line:
+                continue
+
+        if ":" in trimmed:
+            parts = trimmed.split(":", 1)
+            comp_name = parts[0].strip()
+            status_raw = parts[1].strip()
+            if not status_raw:
+                continue
+            status_lower = status_raw.lower()
+
+            if current_section == "fan" or "fan" in comp_name.lower():
+                if status_lower not in ("ok", "normal", "fine", "good"):
+                    sev = "CRITICAL" if any(s in status_lower for s in ("fail", "fault", "crit", "error")) else "WARNING"
+                    alerts.append({
+                        "handler": handler_name,
+                        "severity": sev,
+                        "type": "fan",
+                        "component": comp_name,
+                        "message": f"Fan {comp_name}: {status_raw}",
+                        "status": status_raw,
+                    })
+
+            elif current_section == "temperature" or "temp" in comp_name.lower():
+                if not any(ok in status_lower for ok in ("normal", "ok", "fine", "good")):
+                    sev = "CRITICAL" if any(s in status_lower for s in ("over-temperature", "crit", "fail", "fault")) else "WARNING"
+                    alerts.append({
+                        "handler": handler_name,
+                        "severity": sev,
+                        "type": "temperature",
+                        "component": comp_name,
+                        "message": f"Temperature {comp_name}: {status_raw}",
+                        "status": status_raw,
+                    })
+
+            elif current_section == "power_supply" or any(p in comp_name.lower() for p in ("ps", "power")):
+                if any(err in status_lower for err in ("fault", "fail", "crit", "error", "bad")):
+                    alerts.append({
+                        "handler": handler_name,
+                        "severity": "CRITICAL",
+                        "type": "power_supply",
+                        "component": comp_name,
+                        "message": f"Power supply {comp_name}: {status_raw}",
+                        "status": status_raw,
+                    })
+
+    return alerts
+
+
+def handle(host, host_data, options, pre_collected_output=None):
     """
     Dedicated handler for ProCurve / ArubaOS-S switches.
     Can be invoked directly by main.py or delegated to by handlers.aruba.
@@ -113,6 +188,7 @@ def handle(host, alert, options, pre_collected_output=None):
     result = {
         "host": host,
         "error": ERR_OK,
+        "alerts": [],
     }
 
     try:
@@ -138,16 +214,25 @@ def handle(host, alert, options, pre_collected_output=None):
                 host=host,
                 username=username,
                 password=password,
-                commands=["show system"],
+                commands=["show system", "show environment"],
                 port=port,
                 timeout=timeout
             )
 
         system_info = parse_aoss_system(raw_output)
         result["system_info"] = system_info
-        print(f"[{host}] Collected ProCurve System Info: Version='{system_info.get('version')}', Uptime='{system_info.get('uptime')}', CPU={system_info.get('cpu_util')}%, Mem={system_info.get('memory_usage')}%")
+        result["alerts"] = parse_aoss_environment(raw_output, handler_name="procurve")
+        print(f"[{host}] Collected ProCurve System Info: Version='{system_info.get('version')}', Uptime='{system_info.get('uptime')}', CPU={system_info.get('cpu_util')}%, Mem={system_info.get('memory_usage')}%, Alerts={len(result['alerts'])}")
     except Exception as e:
         print(f"[{host}] ProCurve execution error: {e}")
         result["error"] = classify_ssh_error(e)
+        result["alerts"].append({
+            "handler": "procurve",
+            "severity": "CRITICAL",
+            "type": "ssh",
+            "component": "SSH",
+            "message": f"SSH connection failed: {e}",
+            "status": "Failed",
+        })
 
     return result

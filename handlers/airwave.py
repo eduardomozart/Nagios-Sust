@@ -79,7 +79,7 @@ def _login_airwave_webui(driver, base_url, username, password, host_label="AirWa
     raise Exception("Timeout waiting for AirWave WebUI login to complete.")
 
 
-def handle(host, alert_info, options):
+def handle(host, host_data, options):
     """
     AirWave handler for Nagios-Sust.
     Resolves the device ID in AirWave API, logs into WebUI, captures the Device Info viewport,
@@ -106,15 +106,16 @@ def handle(host, alert_info, options):
         "host": host,
         "url": base_url,
         "error": ERR_OK,
+        "alerts": [],
     }
 
     # 1. Resolve Device ID
     device_id = None
-    if isinstance(alert_info, dict):
-        if isinstance(alert_info.get("airwave"), dict):
-            device_id = alert_info["airwave"].get("device_id")
+    if isinstance(host_data, dict):
+        if isinstance(host_data.get("airwave"), dict):
+            device_id = host_data["airwave"].get("device_id")
         if not device_id:
-            device_id = alert_info.get("device_id")
+            device_id = host_data.get("device_id")
     device_data = None
 
     if not device_id:
@@ -217,6 +218,14 @@ def handle(host, alert_info, options):
             status_val = scraped_info.get("status", "").upper()
             if status_val and "DOWN" in status_val:
                 result["error"] = ERR_DEVICE_DOWN
+                result["alerts"].append({
+                    "handler": "airwave",
+                    "severity": "CRITICAL",
+                    "type": "device",
+                    "component": host,
+                    "message": f"Device {host} status is DOWN in AirWave",
+                    "status": "DOWN",
+                })
 
             print(
                 f"[{host}] System info: Model='{scraped_info.get('model')}', "
@@ -229,6 +238,14 @@ def handle(host, alert_info, options):
     except Exception as e:
         print(f"[{host}] Error during AirWave automation: {e}")
         result["error"] = ERR_AUTOMATION_FAILED
+        result["alerts"].append({
+            "handler": "airwave",
+            "severity": "CRITICAL",
+            "type": "execution",
+            "component": "AirWave",
+            "message": f"AirWave automation error: {e}",
+            "status": "Failed",
+        })
     finally:
         if driver:
             driver.quit()

@@ -19,7 +19,7 @@ def detect_equipment_type(output):
     #     return "controller"
     return "unknown"
 
-def handle(host, alert, options, pre_collected_output=None):
+def handle(host, host_data, options, pre_collected_output=None):
     """
     Generic Aruba dispatcher handler.
     Connects via SSH, runs initial identification ('show system'), detects the
@@ -58,6 +58,14 @@ def handle(host, alert, options, pre_collected_output=None):
             return {
                 "host": host,
                 "error": classify_ssh_error(e),
+                "alerts": [{
+                    "handler": "aruba",
+                    "severity": "CRITICAL",
+                    "type": "ssh",
+                    "component": "SSH",
+                    "message": f"SSH connection failed: {e}",
+                    "status": "Failed",
+                }],
             }
 
     try:
@@ -65,14 +73,22 @@ def handle(host, alert, options, pre_collected_output=None):
         print(f"[{host}] Detected Aruba device family: '{detected_type}'")
 
         if detected_type == "arubacx":
-            return arubacx_handler.handle(host, alert, options, pre_collected_output=raw_output)
+            return arubacx_handler.handle(host, host_data, options, pre_collected_output=raw_output)
         elif detected_type == "procurve":
-            return procurve_handler.handle(host, alert, options, pre_collected_output=raw_output)
+            return procurve_handler.handle(host, host_data, options, pre_collected_output=raw_output)
         else:
             print(f"[{host}] Unrecognized Aruba device type. Aborting execution.")
             return {
                 "host": host,
                 "error": ERR_AUTOMATION_FAILED,
+                "alerts": [{
+                    "handler": "aruba",
+                    "severity": "CRITICAL",
+                    "type": "device",
+                    "component": "Identification",
+                    "message": "Unrecognized Aruba device type",
+                    "status": "Failed",
+                }],
             }
 
     except Exception as e:
@@ -80,4 +96,12 @@ def handle(host, alert, options, pre_collected_output=None):
         return {
             "host": host,
             "error": classify_ssh_error(e),
+            "alerts": [{
+                "handler": "aruba",
+                "severity": "CRITICAL",
+                "type": "execution",
+                "component": "Dispatcher",
+                "message": f"Aruba dispatcher execution error: {e}",
+                "status": "Failed",
+            }],
         }

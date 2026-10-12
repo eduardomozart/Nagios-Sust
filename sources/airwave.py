@@ -47,9 +47,9 @@ def get_hosts(config, options=None):
         )
         print(f"AirWave API returned {len(devices)} matching devices.")
 
-        alerts = []
+        hosts = []
         for dev in devices:
-            alerts.append({
+            hosts.append({
                 "host": dev["name"],
                 "ip": dev["ip"],
                 "device_id": dev["id"],
@@ -58,7 +58,7 @@ def get_hosts(config, options=None):
                 "device_category": dev.get("device_category", ""),
                 "folder_id": dev.get("folder_id", ""),
             })
-        return alerts
+        return hosts
     except Exception as e:
         print(f"Error enumerating AirWave devices: {e}")
         sys.exit(ERR_AIRWAVE_API_ERROR)

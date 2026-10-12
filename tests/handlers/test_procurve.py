@@ -115,6 +115,86 @@ Memory   - Total   : 100
         res = procurve_mod.handle("SW-ACCESS-01", {}, {"username": "admin", "password": "x"})
         self.assertEqual(res["error"], ERR_CONNECTION_TIMEOUT)
 
+    def test_procurve_environment_parsing_normal(self):
+        """Verifies parse_aoss_environment returns empty list when all fans, temperatures and PSUs are normal."""
+        output = """
+Status and Counters - Environment Information
+
+Power Supplies:
+  Power Supply 1 : OK
+  Power Supply 2 : OK
+
+Fans:
+  Fan 1 : OK
+  Fan 2 : OK
+
+Temperature:
+  Chassis : Normal
+"""
+        alerts = procurve_mod.parse_aoss_environment(output)
+        self.assertEqual(alerts, [])
+
+    def test_procurve_environment_parsing_faults(self):
+        """Verifies parse_aoss_environment emits structured alerts for fan, temp, and PSU failures."""
+        output = """
+Status and Counters - Environment Information
+
+Power Supplies:
+  Power Supply 1 : Fault
+  Power Supply 2 : OK
+
+Fans:
+  Fan 1 : Failed
+  Fan 2 : OK
+
+Temperature:
+  Chassis : Over-temperature
+"""
+        alerts = procurve_mod.parse_aoss_environment(output, handler_name="procurve")
+        self.assertEqual(len(alerts), 3)
+
+        # Power supply
+        a_psu = alerts[0]
+        self.assertEqual(a_psu["handler"], "procurve")
+        self.assertEqual(a_psu["severity"], "CRITICAL")
+        self.assertEqual(a_psu["type"], "power_supply")
+        self.assertEqual(a_psu["component"], "Power Supply 1")
+        self.assertEqual(a_psu["status"], "Fault")
+
+        # Fan
+        a_fan = alerts[1]
+        self.assertEqual(a_fan["handler"], "procurve")
+        self.assertEqual(a_fan["severity"], "CRITICAL")
+        self.assertEqual(a_fan["type"], "fan")
+        self.assertEqual(a_fan["component"], "Fan 1")
+        self.assertEqual(a_fan["status"], "Failed")
+
+        # Temp
+        a_temp = alerts[2]
+        self.assertEqual(a_temp["handler"], "procurve")
+        self.assertEqual(a_temp["severity"], "CRITICAL")
+        self.assertEqual(a_temp["type"], "temperature")
+        self.assertEqual(a_temp["component"], "Chassis")
+        self.assertEqual(a_temp["status"], "Over-temperature")
+
+    def test_procurve_handle_execution_with_environment(self):
+        """Verifies procurve handle parses environment and populates alerts list."""
+        output = """SW-ACCESS-01# show system
+Software revision  : WC.16.11.0027
+Up Time            : 93 days
+CPU Util (%)           : 39
+Serial Number      : TW0000000001
+Memory   - Total   : 100
+           Free    : 50
+SW-ACCESS-01# show environment
+Fans:
+  Fan 1 : Failed
+"""
+        res = procurve_mod.handle("SW-ACCESS-01", {}, {}, pre_collected_output=output)
+        self.assertEqual(res["error"], 0)
+        self.assertEqual(len(res["alerts"]), 1)
+        self.assertEqual(res["alerts"][0]["type"], "fan")
+        self.assertEqual(res["alerts"][0]["status"], "Failed")
 
 if __name__ == "__main__":
     unittest.main(buffer=True)
