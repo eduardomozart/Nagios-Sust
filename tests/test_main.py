@@ -142,11 +142,15 @@ class TestMainOrchestrator(unittest.TestCase):
         res2 = {"host": host, "system_info": {"version": "WC.16.11.0027", "uptime": "93 days"}, "error": 0}
         handlers_obj["procurve"] = {"system_info": res2["system_info"], "error": res2["error"]}
 
+        from utils.alert_evaluator import build_thresholds_container
+        thresholds_container = build_thresholds_container()
+
         cumulative_item = {
             "host": host_obj,
             "rules": rules_list,
             "handlers": handlers_obj,
             "sources": sources_obj,
+            "alerts": thresholds_container,
         }
 
         # Assert unified single item with both rules and both handlers preserved
@@ -160,7 +164,7 @@ class TestMainOrchestrator(unittest.TestCase):
         self.assertEqual(cumulative_item["handlers"]["procurve"]["error"], 0)
         self.assertEqual(cumulative_item["host"]["name"], "SW-CORE-01")
         self.assertEqual(cumulative_item["host"]["alerts"], [])
-        self.assertNotIn("alerts", cumulative_item)
+        self.assertEqual(cumulative_item["alerts"].cpu.warning, 75)
 
     def test_orchestrator_handler_alerts_collection_onto_host(self):
         """Verifies alerts from handlers are collected on host.alerts with handler attribution and not stored in handlers."""
@@ -179,7 +183,6 @@ class TestMainOrchestrator(unittest.TestCase):
                     "type": "fan",
                     "component": "Fan 1",
                     "message": "Fan 1: Failed",
-                    "status": "Failed",
                 }
             ],
         }
@@ -195,11 +198,15 @@ class TestMainOrchestrator(unittest.TestCase):
 
         handlers_obj[handler_name] = handler_entry
 
+        from utils.alert_evaluator import build_thresholds_container
+        thresholds_container = build_thresholds_container()
+
         cumulative_item = {
             "host": host_obj,
             "rules": ["Core Switches"],
             "handlers": handlers_obj,
             "sources": {"list": []},
+            "alerts": thresholds_container,
         }
 
         # Verify alerts stored on host_obj with handler attribution
@@ -209,13 +216,41 @@ class TestMainOrchestrator(unittest.TestCase):
         self.assertEqual(alert["severity"], "CRITICAL")
         self.assertEqual(alert["type"], "fan")
         self.assertEqual(alert["component"], "Fan 1")
-        self.assertEqual(alert["status"], "Failed")
 
         # Verify handlers_obj does NOT contain alerts
         self.assertNotIn("alerts", handlers_obj["procurve"])
 
-        # Verify cumulative_item does NOT have top-level alerts alias
-        self.assertNotIn("alerts", cumulative_item)
+        # Verify cumulative_item alerts is thresholds container
+        self.assertEqual(cumulative_item["alerts"], thresholds_container)
+
+    def test_orchestrator_threshold_evaluation_onto_host_alerts(self):
+        """Verifies evaluate_host_thresholds generates uppercase alerts onto host_obj.alerts."""
+        from utils.alert_evaluator import build_thresholds_container, evaluate_host_thresholds
+        host = "SW-CORE-01"
+        host_obj = {"name": host, "alerts": []}
+        handlers_obj = {
+            "procurve": {
+                "system_info": {
+                    "cpu_util": 92,
+                    "memory_usage": 78,
+                }
+            }
+        }
+        thresholds_container = build_thresholds_container()
+        th_alerts = evaluate_host_thresholds(handlers_obj, thresholds_container, host)
+        for a in th_alerts:
+            host_obj["alerts"].append(a)
+
+        self.assertEqual(len(host_obj["alerts"]), 2)
+        # CPU 92% > 89% -> CRITICAL
+        cpu_alert = next(a for a in host_obj["alerts"] if a["type"] == "cpu")
+        self.assertEqual(cpu_alert["severity"], "CRITICAL")
+        self.assertEqual(cpu_alert["handler"], "procurve")
+
+        # Mem 78% > 74% -> WARNING
+        mem_alert = next(a for a in host_obj["alerts"] if a["type"] == "memory")
+        self.assertEqual(mem_alert["severity"], "WARNING")
+        self.assertEqual(mem_alert["handler"], "procurve")
 
     def test_orchestrator_handler_latency_parsing(self):
         """Verifies main.py parses handler latency, preserving None on failure, and does not create root latency."""

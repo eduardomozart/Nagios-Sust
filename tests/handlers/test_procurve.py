@@ -115,70 +115,150 @@ Memory   - Total   : 100
         res = procurve_mod.handle("SW-ACCESS-01", {}, {"username": "admin", "password": "x"})
         self.assertEqual(res["error"], ERR_CONNECTION_TIMEOUT)
 
-    def test_procurve_environment_parsing_normal(self):
-        """Verifies parse_aoss_environment returns empty list when all fans, temperatures and PSUs are normal."""
-        output = """
-Status and Counters - Environment Information
-
-Power Supplies:
-  Power Supply 1 : OK
-  Power Supply 2 : OK
-
-Fans:
-  Fan 1 : OK
-  Fan 2 : OK
-
-Temperature:
-  Chassis : Normal
+    def test_procurve_fans_parsing(self):
+        """Verifies parse_aoss_fans with normal state, 1 failure (warning), and >= 2 failures (critical)."""
+        normal_output = """
+Fan Information
+ 
+VSF-Member  1
+ 
+  Num  | State       | Failures | Location
+-------+-------------+----------+----------
+Sys-1  | Fan OK      |   0      | Chassis
+Sys-2  | Fan OK      |   0      | Chassis
+Sys-3  | Fan OK      |   0      | Chassis
+Sys-4  | Fan OK      |   0      | Chassis
+ 
+0 / 4 Fans in Failure State
 """
-        alerts = procurve_mod.parse_aoss_environment(output)
-        self.assertEqual(alerts, [])
+        self.assertEqual(procurve_mod.parse_aoss_fans(normal_output), [])
 
-    def test_procurve_environment_parsing_faults(self):
-        """Verifies parse_aoss_environment emits structured alerts for fan, temp, and PSU failures."""
-        output = """
-Status and Counters - Environment Information
-
-Power Supplies:
-  Power Supply 1 : Fault
-  Power Supply 2 : OK
-
-Fans:
-  Fan 1 : Failed
-  Fan 2 : OK
-
-Temperature:
-  Chassis : Over-temperature
+        # 1 fan failure with 4 fans -> WARNING
+        one_fail_output = """
+Fan Information
+VSF-Member  1
+  Num  | State       | Failures | Location
+-------+-------------+----------+----------
+Sys-1  | Fan OK      |   0      | Chassis
+Sys-2  | Failed      |   1      | Chassis
+Sys-3  | Fan OK      |   0      | Chassis
+Sys-4  | Fan OK      |   0      | Chassis
 """
-        alerts = procurve_mod.parse_aoss_environment(output, handler_name="procurve")
-        self.assertEqual(len(alerts), 3)
+        alerts_1 = procurve_mod.parse_aoss_fans(one_fail_output)
+        self.assertEqual(len(alerts_1), 1)
+        self.assertEqual(alerts_1[0]["severity"], "WARNING")
+        self.assertEqual(alerts_1[0]["component"], "Fan Sys-2 (VSF Member 1)")
 
-        # Power supply
-        a_psu = alerts[0]
-        self.assertEqual(a_psu["handler"], "procurve")
-        self.assertEqual(a_psu["severity"], "CRITICAL")
-        self.assertEqual(a_psu["type"], "power_supply")
-        self.assertEqual(a_psu["component"], "Power Supply 1")
-        self.assertEqual(a_psu["status"], "Fault")
+        # 2 fan failures with 4 fans -> CRITICAL
+        two_fail_output = """
+Fan Information
+VSF-Member  1
+  Num  | State       | Failures | Location
+-------+-------------+----------+----------
+Sys-1  | Fan OK      |   0      | Chassis
+Sys-2  | Failed      |   1      | Chassis
+Sys-3  | Failed      |   2      | Chassis
+Sys-4  | Fan OK      |   0      | Chassis
+"""
+        alerts_2 = procurve_mod.parse_aoss_fans(two_fail_output)
+        self.assertEqual(len(alerts_2), 2)
+        self.assertEqual(alerts_2[0]["severity"], "CRITICAL")
+        self.assertEqual(alerts_2[1]["severity"], "CRITICAL")
 
-        # Fan
-        a_fan = alerts[1]
-        self.assertEqual(a_fan["handler"], "procurve")
-        self.assertEqual(a_fan["severity"], "CRITICAL")
-        self.assertEqual(a_fan["type"], "fan")
-        self.assertEqual(a_fan["component"], "Fan 1")
-        self.assertEqual(a_fan["status"], "Failed")
+    def test_procurve_temperature_parsing(self):
+        """Verifies parse_aoss_temperature with normal temp, fanless empty table, and over-temp."""
+        # Normal
+        normal_output = """
+System Air Temperatures
+  VSF-Member  1
+  Temp    Current  Max   Min                        Avg    
+  Sensor  Temp     Temp  Temp  Threshold  OverTemp  Temp   
+  ------- -------- ----- ----- ---------- --------- -------
+  Chassis 24C      25C   22C   55C        NO         23.50C
+"""
+        self.assertEqual(procurve_mod.parse_aoss_temperature(normal_output), [])
 
-        # Temp
-        a_temp = alerts[2]
-        self.assertEqual(a_temp["handler"], "procurve")
-        self.assertEqual(a_temp["severity"], "CRITICAL")
-        self.assertEqual(a_temp["type"], "temperature")
-        self.assertEqual(a_temp["component"], "Chassis")
-        self.assertEqual(a_temp["status"], "Over-temperature")
+        # Fanless / entry switch without sensors (e.g. Aruba 2530/2930F) -> 0 alerts
+        fanless_output = """
+System Air Temperatures
+  VSF-Member  1
+  Temp    Current  Max   Min                        Avg    
+  Sensor  Temp     Temp  Temp  Threshold  OverTemp  Temp   
+  ------- -------- ----- ----- ---------- --------- -------
+"""
+        self.assertEqual(procurve_mod.parse_aoss_temperature(fanless_output), [])
 
-    def test_procurve_handle_execution_with_environment(self):
-        """Verifies procurve handle parses environment and populates alerts list."""
+        # Warning (>= 25C, < 60C)
+        warn_output = """
+System Air Temperatures
+  Temp    Current  Max   Min                        Avg    
+  Sensor  Temp     Temp  Temp  Threshold  OverTemp  Temp   
+  ------- -------- ----- ----- ---------- --------- -------
+  Chassis 31C      33C   27C   55C        NO         29.46C
+"""
+        warn_alerts = procurve_mod.parse_aoss_temperature(warn_output)
+        self.assertEqual(len(warn_alerts), 1)
+        self.assertEqual(warn_alerts[0]["severity"], "WARNING")
+
+        # Critical (OverTemp YES)
+        crit_output = """
+System Air Temperatures
+  Temp    Current  Max   Min                        Avg    
+  Sensor  Temp     Temp  Temp  Threshold  OverTemp  Temp   
+  ------- -------- ----- ----- ---------- --------- -------
+  Chassis 62C      65C   30C   55C        YES        58.00C
+"""
+        crit_alerts = procurve_mod.parse_aoss_temperature(crit_output)
+        self.assertEqual(len(crit_alerts), 1)
+        self.assertEqual(crit_alerts[0]["severity"], "CRITICAL")
+
+    def test_procurve_power_supply_parsing(self):
+        """Verifies parse_aoss_power_supply with normal states, 1 fault (warning), and >= 2 faults (critical)."""
+        normal_output = """
+Power Supply Status:
+
+ PS#    Model      Serial          State         AC/DC  + V    Wattage
+ ---- --------- ------------ ----------------- -------------- ---------
+   1   J9828A    IN30G4D009   Powered           AC 120V/240V      700
+   2   J9828A    IN30G4D00C   Powered           AC 120V/240V      700
+   3                          Not Present       -- ---------        0
+   4   J9830A    IN43G4G05H   Powered           AC 120V/240V     2750
+
+   3 /  4 supply bays delivering power.
+"""
+        self.assertEqual(procurve_mod.parse_aoss_power_supply(normal_output), [])
+
+        # 1 fault with 3 populated PSUs -> WARNING
+        one_fault_output = """
+Power Supply Status:
+
+ PS#    Model      Serial          State         AC/DC  + V    Wattage
+ ---- --------- ------------ ----------------- -------------- ---------
+   1   J9828A    IN30G4D009   Powered           AC 120V/240V      700
+   2   J9828A    IN30G4D00C   Fault             AC 120V/240V      700
+   3                          Not Present       -- ---------        0
+   4   J9830A    IN43G4G05H   Powered           AC 120V/240V     2750
+"""
+        alerts_1 = procurve_mod.parse_aoss_power_supply(one_fault_output)
+        self.assertEqual(len(alerts_1), 1)
+        self.assertEqual(alerts_1[0]["severity"], "WARNING")
+        self.assertEqual(alerts_1[0]["component"], "Power Supply 2")
+
+        # 2 faults -> CRITICAL
+        two_fault_output = """
+Power Supply Status:
+ PS#    Model      Serial          State         AC/DC  + V    Wattage
+ ---- --------- ------------ ----------------- -------------- ---------
+   1   J9828A    IN30G4D009   Permanent Failure AC 120V/240V      700
+   2   J9828A    IN30G4D00C   Fault             AC 120V/240V      700
+   3                          Not Present       -- ---------        0
+"""
+        alerts_2 = procurve_mod.parse_aoss_power_supply(two_fault_output)
+        self.assertEqual(len(alerts_2), 2)
+        self.assertEqual(alerts_2[0]["severity"], "CRITICAL")
+
+    def test_procurve_handle_execution_with_granular_commands(self):
+        """Verifies procurve handle parses granular CLI outputs and aggregates alerts."""
         output = """SW-ACCESS-01# show system
 Software revision  : WC.16.11.0027
 Up Time            : 93 days
@@ -186,15 +266,18 @@ CPU Util (%)           : 39
 Serial Number      : TW0000000001
 Memory   - Total   : 100
            Free    : 50
-SW-ACCESS-01# show environment
-Fans:
-  Fan 1 : Failed
+SW-ACCESS-01# show system fans
+Fan Information
+Sys-1  | Failed      |   1      | Chassis
+Sys-2  | Failed      |   2      | Chassis
 """
         res = procurve_mod.handle("SW-ACCESS-01", {}, {}, pre_collected_output=output)
         self.assertEqual(res["error"], 0)
-        self.assertEqual(len(res["alerts"]), 1)
+        self.assertEqual(len(res["alerts"]), 2)
         self.assertEqual(res["alerts"][0]["type"], "fan")
-        self.assertEqual(res["alerts"][0]["status"], "Failed")
+        self.assertEqual(res["alerts"][0]["severity"], "CRITICAL")
+
 
 if __name__ == "__main__":
     unittest.main(buffer=True)
+

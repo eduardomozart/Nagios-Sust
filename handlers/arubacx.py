@@ -37,88 +37,179 @@ def parse_aoscx_system(output):
     }
 
 
-def parse_aoscx_environment(output, handler_name="arubacx"):
+def parse_aoscx_fans(output, handler_name="arubacx"):
     """
-    Parses 'show environment' output from an ArubaOS-CX switch and returns
-    a list of structured alerts for abnormal fans, temperature, and power supplies.
+    Parses 'show environment fan' output from an ArubaOS-CX switch.
+    Inspects both fan tray information and individual fan modules.
+    If 1 fan fails with redundant fans available, emits WARNING; >= 2 failures emits CRITICAL.
     """
     alerts = []
     if not output:
         return alerts
 
     current_section = None
+    total_fans = 0
+    failed_fans = []
 
     for line in output.splitlines():
         trimmed = line.strip()
         if not trimmed or trimmed.startswith("---") or trimmed.startswith("==="):
             continue
 
-        lower_line = trimmed.lower()
-        if "sensor" in lower_line and "temperature" in lower_line:
-            current_section = "temperature"
+        lower = trimmed.lower()
+        if "fan tray information" in lower:
+            current_section = "tray"
             continue
-        elif "fan" in lower_line and ("speed" in lower_line or "airflow" in lower_line or "rpm" in lower_line):
+        elif "fan information" in lower:
             current_section = "fan"
-            continue
-        elif "psu" in lower_line and ("watts" in lower_line or "model" in lower_line or "status" in lower_line):
-            current_section = "power_supply"
             continue
 
         parts = trimmed.split()
-        if len(parts) < 2:
+        if len(parts) < 2 or parts[0].lower() in ("mbr/tray", "mbr/tray/fan", "fan", "serial"):
             continue
 
-        # Ignore repeated table headers
-        if parts[0].lower() in ("sensor", "fan", "psu", "module", "location"):
-            continue
-
-        if current_section == "temperature":
-            status = parts[-1].strip()
-            status_lower = status.lower()
-            if status_lower not in ("normal", "ok", "fine", "good"):
-                sev = "CRITICAL" if status_lower in ("critical", "failed", "fault", "error") else "WARNING"
-                sensor_id = parts[0]
-                temp_val = parts[-2] if len(parts) >= 3 else ""
-                temp_str = f" ({temp_val})" if temp_val and (temp_val.replace(".", "", 1).isdigit() or "c" in temp_val.lower()) else ""
-                alerts.append({
-                    "handler": handler_name,
-                    "severity": sev,
-                    "type": "temperature",
-                    "component": f"Sensor {sensor_id}",
-                    "message": f"Temperature sensor {sensor_id}{temp_str}: {status}",
-                    "status": status,
-                })
+        if current_section == "tray":
+            tray_id = parts[0]
+            for token in parts:
+                tok_lower = token.lower()
+                if tok_lower in ("ready", "ok"):
+                    total_fans += 1
+                    break
+                elif tok_lower in ("fault", "failed", "critical", "error"):
+                    total_fans += 1
+                    failed_fans.append((f"Fan Tray {tray_id}", token))
+                    break
 
         elif current_section == "fan":
-            status = parts[-1].strip()
-            status_lower = status.lower()
-            if status_lower not in ("normal", "ok", "fine", "good"):
-                sev = "CRITICAL" if status_lower in ("failed", "fault", "critical", "error") else "WARNING"
-                fan_id = parts[0]
+            fan_id = parts[0]
+            status_token = parts[-2] if len(parts) >= 3 and parts[-1].isdigit() else parts[-1]
+            status_lower = status_token.lower()
+            if status_lower in ("ok", "normal", "slow", "medium", "fast", "max"):
+                total_fans += 1
+            elif status_lower in ("fault", "failed", "critical", "error"):
+                total_fans += 1
+                failed_fans.append((f"Fan {fan_id}", status_token))
+
+    if failed_fans:
+        sev = "CRITICAL" if len(failed_fans) >= 2 or total_fans <= 1 else "WARNING"
+        for comp, token in failed_fans:
+            alerts.append({
+                "handler": handler_name,
+                "severity": sev,
+                "type": "fan",
+                "component": comp,
+                "message": f"{comp}: {token}",
+            })
+
+    return alerts
+
+
+def parse_aoscx_temperature(output, handler_name="arubacx"):
+    """
+    Parses 'show environment temperature' output from an ArubaOS-CX switch.
+    """
+    alerts = []
+    if not output:
+        return alerts
+
+    for line in output.splitlines():
+        trimmed = line.strip()
+        if not trimmed or trimmed.startswith("---") or trimmed.startswith("==="):
+            continue
+
+        if any(h in trimmed.lower() for h in ("temperature information", "module type", "current", "temperature", "status", "mbr/slot-sensor")):
+            continue
+
+        parts = trimmed.split()
+        if len(parts) >= 3:
+            sensor = parts[0]
+            status_token = parts[-1]
+            status_lower = status_token.lower()
+
+            # Find temperature value (token preceding C or status)
+            temp_str = ""
+            for i, p in enumerate(parts):
+                if p.upper() == "C" and i > 0:
+                    temp_str = f"{parts[i-1]} C"
+                    break
+
+            if status_lower in ("emergency", "critical", "fault", "failed"):
                 alerts.append({
                     "handler": handler_name,
-                    "severity": sev,
-                    "type": "fan",
-                    "component": f"Fan {fan_id}",
-                    "message": f"Fan {fan_id}: {status}",
-                    "status": status,
+                    "severity": "CRITICAL",
+                    "type": "temperature",
+                    "component": f"Sensor {sensor}",
+                    "message": f"Temperature Sensor {sensor} ({temp_str}): {status_token}",
                 })
-
-        elif current_section == "power_supply":
-            status = parts[-1].strip()
-            status_lower = status.lower()
-            if status_lower not in ("normal", "ok", "fine", "good", "not_present", "absent"):
-                sev = "CRITICAL" if status_lower in ("fault", "failed", "critical", "error") else "WARNING"
-                psu_id = parts[0]
+            elif status_lower in ("warning", "alert"):
                 alerts.append({
                     "handler": handler_name,
-                    "severity": sev,
-                    "type": "power_supply",
-                    "component": f"PSU {psu_id}",
-                    "message": f"Power supply {psu_id}: {status}",
-                    "status": status,
+                    "severity": "WARNING",
+                    "type": "temperature",
+                    "component": f"Sensor {sensor}",
+                    "message": f"Temperature Sensor {sensor} ({temp_str}): {status_token}",
                 })
 
+    return alerts
+
+
+def parse_aoscx_power_supply(output, handler_name="arubacx"):
+    """
+    Parses 'show environment power-supply' output from an ArubaOS-CX switch.
+    If 1 PSU fails with redundant PSUs available, emits WARNING; >= 2 failures emits CRITICAL.
+    """
+    alerts = []
+    if not output:
+        return alerts
+
+    total_psus = 0
+    failed_psus = []
+
+    for line in output.splitlines():
+        trimmed = line.strip()
+        if not trimmed or trimmed.startswith("---") or trimmed.startswith("==="):
+            continue
+
+        if any(h in trimmed.lower() for h in ("power supply status", "model", "serial", "state", "ac/dc", "wattage", "delivering power", "total power")):
+            continue
+
+        m_bay = re.match(r"^(\d+)\s+(.*)", trimmed)
+        if m_bay:
+            ps_num = m_bay.group(1)
+            rest = m_bay.group(2)
+
+            m_state = re.search(r"\b(Powered|Not Present|Permanent Failure|Fault|Failed|Failure|Unpowered|Off|Error)\b", rest, re.IGNORECASE)
+            if m_state:
+                state_str = m_state.group(1)
+                state_lower = state_str.lower()
+                if state_lower != "not present":
+                    total_psus += 1
+                if state_lower not in ("powered", "not present"):
+                    failed_psus.append((ps_num, state_str))
+
+    if failed_psus:
+        sev = "CRITICAL" if len(failed_psus) >= 2 or total_psus <= 1 else "WARNING"
+        for ps_num, state_str in failed_psus:
+            comp = f"Power Supply {ps_num}"
+            alerts.append({
+                "handler": handler_name,
+                "severity": sev,
+                "type": "power_supply",
+                "component": comp,
+                "message": f"{comp}: {state_str}",
+            })
+
+    return alerts
+
+
+def parse_aoscx_environment(output, handler_name="arubacx"):
+    """
+    Aggregates granular ArubaOS-CX hardware status parsers for fans, temperature, and power supplies.
+    """
+    alerts = []
+    alerts.extend(parse_aoscx_fans(output, handler_name=handler_name))
+    alerts.extend(parse_aoscx_temperature(output, handler_name=handler_name))
+    alerts.extend(parse_aoscx_power_supply(output, handler_name=handler_name))
     return alerts
 
 
@@ -156,7 +247,12 @@ def handle(host, host_data, options, pre_collected_output=None):
                 host=host,
                 username=username,
                 password=password,
-                commands=["show system", "show environment"],
+                commands=[
+                    "show system",
+                    "show environment fan",
+                    "show environment temperature",
+                    "show environment power-supply",
+                ],
                 port=port,
                 timeout=timeout
             )
@@ -174,7 +270,6 @@ def handle(host, host_data, options, pre_collected_output=None):
             "type": "ssh",
             "component": "SSH",
             "message": f"SSH connection failed: {e}",
-            "status": "Failed",
         })
 
     return result

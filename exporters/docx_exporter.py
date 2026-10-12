@@ -172,6 +172,7 @@ def export(results, config):
                 "rules": rules_list,
                 "handlers": handlers_obj,
                 "sources": sources_obj,
+                "alerts": res.get("alerts", {}),
             }
 
             # Inject InlineImage for any captured handler screenshots

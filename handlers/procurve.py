@@ -104,79 +104,188 @@ def parse_aoss_system(output):
         "members": members
     }
 
-def parse_aoss_environment(output, handler_name="procurve"):
+def parse_aoss_fans(output, handler_name="procurve"):
     """
-    Parses 'show environment' output from a ProCurve / ArubaOS-S switch and returns
-    a list of structured alerts for abnormal fans, temperature, and power supplies.
+    Parses 'show system fans' output from a ProCurve / ArubaOS-S switch.
+    Supports both standalone switches and VSF stack members.
+    If 1 fan fails with redundant fans available, emits WARNING; >= 2 failures emits CRITICAL.
     """
     alerts = []
     if not output:
         return alerts
 
-    current_section = None
+    current_member = None
+    total_fans = 0
+    failed_fans = []
+
+    for line in output.splitlines():
+        trimmed = line.strip()
+        if not trimmed:
+            continue
+
+        m_mbr = re.search(r"VSF-Member\s+(\d+)", trimmed, re.IGNORECASE)
+        if m_mbr:
+            current_member = m_mbr.group(1)
+            continue
+
+        if "|" in trimmed and not trimmed.startswith("---") and not trimmed.startswith("==="):
+            parts = [p.strip() for p in trimmed.split("|")]
+            if len(parts) >= 3:
+                num = parts[0]
+                state = parts[1]
+                failures = parts[2]
+                if num.lower() in ("num", "fan") or "state" in state.lower():
+                    continue
+
+                total_fans += 1
+                state_lower = state.lower()
+                failures_int = int(failures) if failures.isdigit() else 0
+
+                is_ok = state_lower in ("fan ok", "ok", "fine", "good") and failures_int == 0
+                if not is_ok:
+                    failed_fans.append((num, state, failures_int, current_member))
+
+    if failed_fans:
+        sev = "CRITICAL" if len(failed_fans) >= 2 or total_fans <= 1 else "WARNING"
+        for num, state, failures_int, current_member in failed_fans:
+            comp = f"Fan {num} (VSF Member {current_member})" if current_member else f"Fan {num}"
+            alerts.append({
+                "handler": handler_name,
+                "severity": sev,
+                "type": "fan",
+                "component": comp,
+                "message": f"{comp}: {state} ({failures_int} failures)",
+            })
+
+    return alerts
+
+
+def parse_aoss_temperature(output, handler_name="procurve"):
+    """
+    Parses 'show system temperature' output from a ProCurve / ArubaOS-S switch.
+    Supports VSF stack members and gracefully handles fanless switches (e.g. 2530/2930F)
+    where no sensor rows are populated.
+    """
+    alerts = []
+    if not output:
+        return alerts
+
+    current_member = None
+
+    for line in output.splitlines():
+        trimmed = line.strip()
+        if not trimmed:
+            continue
+
+        m_mbr = re.search(r"VSF-Member\s+(\d+)", trimmed, re.IGNORECASE)
+        if m_mbr:
+            current_member = m_mbr.group(1)
+            continue
+
+        if any(h in trimmed.lower() for h in ("temp", "sensor", "current", "system air temperatures", "threshold", "overtemp", "avg")):
+            if "chassis" not in trimmed.lower() and not re.search(r"\d+C\b", trimmed, re.IGNORECASE):
+                continue
+        if trimmed.startswith("---") or trimmed.startswith("==="):
+            continue
+
+        parts = trimmed.split()
+        if len(parts) >= 6:
+            sensor = parts[0]
+            current_temp_str = parts[1]
+            threshold_str = parts[4]
+            over_temp_str = parts[5]
+
+            m_curr = re.search(r"(\d+(?:\.\d+)?)", current_temp_str)
+            if not m_curr:
+                continue
+
+            curr_val = float(m_curr.group(1))
+            m_th = re.search(r"(\d+(?:\.\d+)?)", threshold_str)
+            th_val = float(m_th.group(1)) if m_th else 55.0
+
+            comp = f"Sensor {sensor} (VSF Member {current_member})" if current_member else f"Sensor {sensor}"
+
+            is_over = over_temp_str.upper() == "YES" or curr_val >= th_val or curr_val >= 60.0
+            is_warning = not is_over and curr_val >= 25.0
+
+            if is_over:
+                alerts.append({
+                    "handler": handler_name,
+                    "severity": "CRITICAL",
+                    "type": "temperature",
+                    "component": comp,
+                    "message": f"{comp}: Over-temperature ({current_temp_str}, Threshold {threshold_str})",
+                })
+            elif is_warning:
+                alerts.append({
+                    "handler": handler_name,
+                    "severity": "WARNING",
+                    "type": "temperature",
+                    "component": comp,
+                    "message": f"{comp}: High temperature ({current_temp_str})",
+                })
+
+    return alerts
+
+
+def parse_aoss_power_supply(output, handler_name="procurve"):
+    """
+    Parses 'show system power-supply' output from a ProCurve / ArubaOS-S switch.
+    Treats 'Powered' and 'Not Present' as normal. If 1 PSU fails with redundant PSUs
+    available, emits WARNING; >= 2 failures emits CRITICAL.
+    """
+    alerts = []
+    if not output:
+        return alerts
+
+    total_psus = 0
+    failed_psus = []
 
     for line in output.splitlines():
         trimmed = line.strip()
         if not trimmed or trimmed.startswith("---") or trimmed.startswith("==="):
             continue
 
-        lower_line = trimmed.lower()
-        if "fan" in lower_line and ("status" in lower_line or "information" in lower_line or lower_line.startswith("fan")):
-            current_section = "fan"
-            if ":" not in trimmed or lower_line.endswith(":") or "status" in lower_line or "information" in lower_line:
-                continue
-        elif "temperature" in lower_line:
-            current_section = "temperature"
-            if ":" not in trimmed or lower_line.endswith(":") or "status" in lower_line or "information" in lower_line:
-                continue
-        elif "power suppl" in lower_line or "psu" in lower_line:
-            current_section = "power_supply"
-            if ":" not in trimmed or lower_line.endswith(":") or "status" in lower_line or "information" in lower_line:
-                continue
+        if any(h in trimmed.lower() for h in ("power supply status", "model", "serial", "state", "ac/dc", "wattage", "delivering power", "total power")):
+            continue
 
-        if ":" in trimmed:
-            parts = trimmed.split(":", 1)
-            comp_name = parts[0].strip()
-            status_raw = parts[1].strip()
-            if not status_raw:
-                continue
-            status_lower = status_raw.lower()
+        m_bay = re.match(r"^(\d+)\s+(.*)", trimmed)
+        if m_bay:
+            ps_num = m_bay.group(1)
+            rest = m_bay.group(2)
 
-            if current_section == "fan" or "fan" in comp_name.lower():
-                if status_lower not in ("ok", "normal", "fine", "good"):
-                    sev = "CRITICAL" if any(s in status_lower for s in ("fail", "fault", "crit", "error")) else "WARNING"
-                    alerts.append({
-                        "handler": handler_name,
-                        "severity": sev,
-                        "type": "fan",
-                        "component": comp_name,
-                        "message": f"Fan {comp_name}: {status_raw}",
-                        "status": status_raw,
-                    })
+            m_state = re.search(r"\b(Powered|Not Present|Permanent Failure|Fault|Failed|Failure|Unpowered|Off|Error)\b", rest, re.IGNORECASE)
+            if m_state:
+                state_str = m_state.group(1)
+                state_lower = state_str.lower()
+                if state_lower != "not present":
+                    total_psus += 1
+                if state_lower not in ("powered", "not present"):
+                    failed_psus.append((ps_num, state_str))
 
-            elif current_section == "temperature" or "temp" in comp_name.lower():
-                if not any(ok in status_lower for ok in ("normal", "ok", "fine", "good")):
-                    sev = "CRITICAL" if any(s in status_lower for s in ("over-temperature", "crit", "fail", "fault")) else "WARNING"
-                    alerts.append({
-                        "handler": handler_name,
-                        "severity": sev,
-                        "type": "temperature",
-                        "component": comp_name,
-                        "message": f"Temperature {comp_name}: {status_raw}",
-                        "status": status_raw,
-                    })
+    if failed_psus:
+        sev = "CRITICAL" if len(failed_psus) >= 2 or total_psus <= 1 else "WARNING"
+        for ps_num, state_str in failed_psus:
+            comp = f"Power Supply {ps_num}"
+            alerts.append({
+                "handler": handler_name,
+                "severity": sev,
+                "type": "power_supply",
+                "component": comp,
+                "message": f"{comp}: {state_str}",
+            })
 
-            elif current_section == "power_supply" or any(p in comp_name.lower() for p in ("ps", "power")):
-                if any(err in status_lower for err in ("fault", "fail", "crit", "error", "bad")):
-                    alerts.append({
-                        "handler": handler_name,
-                        "severity": "CRITICAL",
-                        "type": "power_supply",
-                        "component": comp_name,
-                        "message": f"Power supply {comp_name}: {status_raw}",
-                        "status": status_raw,
-                    })
+    return alerts
 
+
+def parse_aoss_environment(output, handler_name="procurve"):
+    """
+    Aggregates granular ProCurve hardware status parsers for fans, temperature, and power supplies.
+    """
+    alerts = []
+    alerts.extend(parse_aoss_fans(output, handler_name=handler_name))
+    alerts.extend(parse_aoss_temperature(output, handler_name=handler_name))
+    alerts.extend(parse_aoss_power_supply(output, handler_name=handler_name))
     return alerts
 
 
@@ -214,7 +323,12 @@ def handle(host, host_data, options, pre_collected_output=None):
                 host=host,
                 username=username,
                 password=password,
-                commands=["show system", "show environment"],
+                commands=[
+                    "show system",
+                    "show system fans",
+                    "show system temperature",
+                    "show system power-supply",
+                ],
                 port=port,
                 timeout=timeout
             )
@@ -232,7 +346,6 @@ def handle(host, host_data, options, pre_collected_output=None):
             "type": "ssh",
             "component": "SSH",
             "message": f"SSH connection failed: {e}",
-            "status": "Failed",
         })
 
     return result

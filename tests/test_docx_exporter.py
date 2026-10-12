@@ -146,8 +146,8 @@ class TestDocxExporter(unittest.TestCase):
 
     @patch("exporters.docx_exporter.os.path.exists", return_value=True)
     @patch("exporters.docx_exporter.DocxTemplate")
-    def test_export_includes_host_alerts_directly(self, mock_template_cls, mock_exists):
-        """Verifies that host.alerts is passed directly in context and no top-level alias is present."""
+    def test_export_includes_host_alerts_and_setup_thresholds(self, mock_template_cls, mock_exists):
+        """Verifies that host.alerts contains active alerts and res.alerts provides setup thresholds."""
         mock_doc = MagicMock()
         mock_template_cls.return_value = mock_doc
 
@@ -157,14 +157,16 @@ class TestDocxExporter(unittest.TestCase):
             "type": "ping",
             "component": "ICMP",
             "message": "Ping timeout or unreachable (10.0.0.1)",
-            "status": "Timeout",
         }
+        from utils.alert_evaluator import build_thresholds_container
+        thresholds = build_thresholds_container()
         results = [
             {
                 "host": {"name": "SW-CORE-01", "alerts": [alert]},
                 "rules": ["Core Switches"],
                 "handlers": {},
                 "sources": {"list": []},
+                "alerts": thresholds,
             }
         ]
         config = {
@@ -176,10 +178,13 @@ class TestDocxExporter(unittest.TestCase):
         rendered_context = mock_doc.render.call_args[0][0]
         item = rendered_context["results"][0]
 
-        # Verified: alerts is directly on host, no alias on item
+        # Verified: alerts is directly on host for active alerts
         self.assertIn("alerts", item["host"])
         self.assertEqual(item["host"]["alerts"], [alert])
-        self.assertNotIn("alerts", item)
+        # res.alerts provides setup thresholds container
+        self.assertEqual(item["alerts"], thresholds)
+        self.assertEqual(item["alerts"].cpu.warning, 75)
+        self.assertEqual(item["alerts"].cpu.critical, 90)
 
 if __name__ == "__main__":
     unittest.main(buffer=True)

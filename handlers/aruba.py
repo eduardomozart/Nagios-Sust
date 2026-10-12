@@ -64,7 +64,6 @@ def handle(host, host_data, options, pre_collected_output=None):
                     "type": "ssh",
                     "component": "SSH",
                     "message": f"SSH connection failed: {e}",
-                    "status": "Failed",
                 }],
             }
 
@@ -73,8 +72,42 @@ def handle(host, host_data, options, pre_collected_output=None):
         print(f"[{host}] Detected Aruba device family: '{detected_type}'")
 
         if detected_type == "arubacx":
+            if pre_collected_output is None:
+                try:
+                    diag_output = run_ssh_command(
+                        host=host,
+                        username=username,
+                        password=password,
+                        commands=[
+                            "show environment fan",
+                            "show environment temperature",
+                            "show environment power-supply",
+                        ],
+                        port=port,
+                        timeout=timeout
+                    )
+                    raw_output = f"{raw_output}\n{diag_output}"
+                except Exception as diag_err:
+                    print(f"[{host}] ArubaOS-CX diagnostic command collection warning: {diag_err}")
             return arubacx_handler.handle(host, host_data, options, pre_collected_output=raw_output)
         elif detected_type == "procurve":
+            if pre_collected_output is None:
+                try:
+                    diag_output = run_ssh_command(
+                        host=host,
+                        username=username,
+                        password=password,
+                        commands=[
+                            "show system fans",
+                            "show system temperature",
+                            "show system power-supply",
+                        ],
+                        port=port,
+                        timeout=timeout
+                    )
+                    raw_output = f"{raw_output}\n{diag_output}"
+                except Exception as diag_err:
+                    print(f"[{host}] ProCurve diagnostic command collection warning: {diag_err}")
             return procurve_handler.handle(host, host_data, options, pre_collected_output=raw_output)
         else:
             print(f"[{host}] Unrecognized Aruba device type. Aborting execution.")
@@ -87,7 +120,6 @@ def handle(host, host_data, options, pre_collected_output=None):
                     "type": "device",
                     "component": "Identification",
                     "message": "Unrecognized Aruba device type",
-                    "status": "Failed",
                 }],
             }
 
@@ -102,6 +134,5 @@ def handle(host, host_data, options, pre_collected_output=None):
                 "type": "execution",
                 "component": "Dispatcher",
                 "message": f"Aruba dispatcher execution error: {e}",
-                "status": "Failed",
             }],
         }

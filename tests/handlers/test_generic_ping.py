@@ -43,7 +43,6 @@ class TestGenericPingHandler(unittest.TestCase):
         self.assertEqual(alert["severity"], "CRITICAL")
         self.assertEqual(alert["type"], "ping")
         self.assertEqual(alert["component"], "ICMP")
-        self.assertEqual(alert["status"], "Timeout")
         self.assertIn("192.0.2.1", alert["message"])
 
     @patch("handlers.generic_ping.ping_with_output")

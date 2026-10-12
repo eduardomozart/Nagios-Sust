@@ -79,11 +79,92 @@ The `options` block inside a rule passes configuration to the handler script.
 - `timeout` (int): SSH connection and command execution timeout in seconds. Default: `15`.
 - *Note*: You can use the generic `aruba` handler to automatically probe and detect whether the connected switch is **AOS-CX** or **ProCurve**, which then delegates to the corresponding specialized handler. You can also call `arubacx` or `procurve` directly. When configured as `handler: "aruba"`, the orchestrator stores all collected evidence under `res.handlers.aruba` (e.g. `res.handlers.aruba.system_info`), matching the rule's handler name.
 
+**Switch Hardware Troubleshooting Commands:**
+Rather than executing generic environment summaries, the switch handlers execute granular hardware diagnostics to collect precise component states:
+- **ArubaOS-S / ProCurve (`procurve`)**:
+  - `show system`: Switch model, firmware version, serial number, uptime, CPU and memory utilization.
+  - `show system fans`: Fan status and failure state across all VSF stack members.
+  - `show system temperature`: Air temperatures and sensor thresholds across stack members.
+    > [!NOTE]
+    > Entry-level, compact, or fanless switches (such as specific models in the Aruba 2530 or low-port 2930F families) lack physical chassis temperature sensors. The CLI accepts the command because ArubaOS-S is unified, but the data table is not populated. The parser gracefully detects this and emits 0 false alerts.
+  - `show system power-supply`: Power supply bay presence, model, power state, and wattage.
+- **ArubaOS-CX (`arubacx`)**:
+  - `show system`: Chassis model, AOS-CX firmware version, uptime, CPU and memory utilization.
+  - `show environment fan`: Fan tray and fan module speed, direction, RPM, and operational status.
+  - `show environment temperature`: Module sensor temperatures and severity status (`normal`, `alert`, `critical`, `emergency`).
+  - `show environment power-supply`: Power supply bay presence, state, and wattage.
+
 **Specific Options (AirWave Handler):**
 - `airwave_url` (string): Aruba AirWave server URL or Hostname/IP. Default: `https://airwave`.
 - `username` (string): Overrides global credentials for the AirWave connection.
 - `password` (string): Overrides global credentials for the AirWave connection.
 - `capture_screenshot` (boolean): Captures the Device Info viewport adjusted for horizontal scrolling. Default: `true`.
+
+### Alert Thresholds Configuration (`alerts:`)
+Nagios-Sust includes an automated threshold evaluation engine. You can customize evaluation thresholds in `config.yaml` under `alerts:`. All threshold limits use **integers only** without color names, categorizing telemetry strictly into `Normal`, `Warning`, and `Critical` severities:
+
+```yaml
+alerts:
+  thresholds:
+    cpu:
+      warning: 75
+      critical: 90
+    memory:
+      warning: 75
+      critical: 90
+    interface_utilization:
+      warning: 80
+      critical: 100
+    packet_buffers:
+      warning: 85
+      critical: 95
+    tx_drops:
+      warning: 85
+      critical: 95
+    rx_errors:
+      warning: 85
+      critical: 95
+    message_buffers:
+      warning: 85
+      critical: 95
+    fans:
+      warning: 1
+      critical: 2
+    temperature:
+      warning: 25
+      critical: 60
+    power_supplies:
+      warning: 1
+      critical: 2
+    storage:
+      warning: 70
+      critical: 90
+    firmware_version:
+      warning: 1
+      critical: 2
+```
+
+#### Default Alert Thresholds (English)
+
+| Metric Name | Warning Threshold | Critical Threshold | Notes |
+|---|---|---|---|
+| **CPU (%)** | `>= 75` | `>= 90` | Switch or appliance CPU utilization percentage |
+| **Memory (%)** | `>= 75` | `>= 90` | Memory utilization percentage |
+| **Interface Utilization (%)** | `>= 80` | `>= 100` | Interface bandwidth utilization |
+| **Packet Buffers** | `>= 85` | `>= 95` | Packet buffer utilization |
+| **Tx Drops** | `>= 85` | `>= 95` | Transmit packet drop rate |
+| **Rx Errors** | `>= 85` | `>= 95` | Receive packet error rate |
+| **Message Buffers** | `>= 85` | `>= 95` | Message buffer utilization |
+| **Fans** | `>= 1` | `>= 2` | Number of failed fans |
+| **Temperature (°C)** | `>= 25` | `>= 60` | Sensor temperature; OverTemp sensor flag immediately emits `CRITICAL` |
+| **Power Supplies** | `>= 1` | `>= 2` | Number of failed power supplies |
+| **Storage (%)** | `>= 70` | `>= 90` | Storage disk or flash utilization percentage |
+| **Firmware Version** | `>= 1` | `>= 2` | Major/minor version difference behind recommended release |
+
+**Threshold Data Architecture:**
+- **Setup Thresholds (`res.alerts`)**: In MS Word report templates, iterating `res.alerts` (`{%tr for th in res.alerts %}`) accesses only the configured setup threshold definitions (`th.name`, `th.warning`, `th.critical`).
+- **Active Triggered Alerts (`res.host.alerts`)**: When measured device telemetry exceeds a threshold or when a handler encounters a hardware/connectivity failure, an alert object is attached directly to `res.host.alerts` with uppercase severity (`"CRITICAL"` or `"WARNING"`).
+
 
 ### Device Sources & Multi-Source Enumeration
 Nagios-Sust supports multiple device discovery sources under `device_sources`:
@@ -226,8 +307,14 @@ Nagios-Sust structures all collected evidence into 4 distinct architectural doma
 
 ### The 4 Subsystem Domains
 
-1. **`res.host` (Identity)**:
+1. **`res.host` (Identity & Active Alerts)**:
    - `{{ res.host.name }}`: The device name (e.g. `SW-CORE-01`, `FGT-CORE-01`).
+   - `{{ res.host.alerts }}`: Direct list of active alert dictionaries triggered for this host.
+     - `{{ alert.handler }}`: Originating handler or evaluator (e.g. `arubacx`, `procurve`, `generic_ping`, `fortigate`).
+     - `{{ alert.severity }}`: Uppercase severity level (`CRITICAL` or `WARNING`).
+     - `{{ alert.type }}`: Category of the alert (`cpu`, `memory`, `fan`, `temperature`, `power_supply`, `ping`, `interface`).
+     - `{{ alert.component }}`: Affected component label (e.g. `Fan 1/1/2`, `Sensor 1/1-Switch-ASIC`, `CPU`).
+     - `{{ alert.message }}`: Human-readable alert explanation.
 
 2. **`res.rules` (Rule Metadata)**:
    - `{{ res.rules }}`: Direct list of all matched rule names executed for this host.
@@ -270,6 +357,13 @@ Nagios-Sust structures all collected evidence into 4 distinct architectural doma
    - **`res.sources.<SOURCE>`**: Sub-dictionary housing discovery attributes without polluting root:
      - **`{{ res.sources.nagios_pdf }}`**: Alert details from Nagios PDF (e.g. `{{ res.sources.nagios_pdf.status }}`, `{{ res.sources.nagios_pdf.service }}`).
      - **`{{ res.sources.airwave }}`**: Inventory attributes from AirWave API (e.g. `{{ res.sources.airwave.device_id }}`, `{{ res.sources.airwave.ip }}`, `{{ res.sources.airwave.model }}`).
+
+5. **`res.alerts` (Setup Thresholds Container)**:
+   - When iterating `res.alerts` in Word templates (`{%tr for th in res.alerts %}`), it iterates strictly over the **configured setup thresholds**:
+     - `{{ th.name }}`: Human-readable metric name in English (e.g. `CPU (%)`, `Memory (%)`, `Fans`, `Temperature (°C)`).
+     - `{{ th.warning }}`: Warning threshold integer value.
+     - `{{ th.critical }}`: Critical threshold integer value.
+   - Specific thresholds can also be accessed by key: `{{ res.alerts.cpu.warning }}`, `{{ res.alerts.cpu.critical }}`.
 
 ### Standard Integer Error Codes
 Handlers return standardized numeric error codes (`utils/error_codes.py`) to decouple execution results from presentation languages:

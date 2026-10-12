@@ -33,13 +33,13 @@ When multiple sources are configured (e.g. `device_sources: ["nagios_pdf", "airw
 Handlers are specific Python scripts designed to interact with different types of equipment. To add a new equipment type (e.g., Cisco, CheckPoint), a developer simply creates a new handler file and maps it in the YAML config. Handlers return collected telemetry, metrics, and domain-specific `alerts` along with a standard integer error code:
 
 - **FortiGate (`fortigate.py`)**: Uses `selenium` to log into the FortiOS web interface. It parses the DOM for the `login_button` and dynamically queries the `portgroup` table to extract the link status of `WAN1` and `WAN2` into `if_status`. It saves a visual screenshot of the interface as evidence, scrapes the Dashboard System Information widget into `system_info`, and emits `CRITICAL` alerts if monitored WAN links are down or pings fail.
-- **Aruba Switches (`aruba.py`)**: Connects over SSH via `paramiko` and inspects `show system` output to automatically detect whether the device is running **AOS-CX** or **ProCurve**, then delegates execution to the corresponding handler (`arubacx.py` or `procurve.py`), which can also be invoked directly. Both extract model, firmware version, serial number, uptime, CPU utilization, and calculate memory usage percentages (including VSF stack members) into `system_info`. They also execute `show environment` to inspect fans, temperature sensors, and power supplies, emitting structured `CRITICAL` / `WARNING` alerts for any hardware faults.
+- **Aruba Switches (`aruba.py`)**: Connects over SSH via `paramiko` and inspects `show system` output to automatically detect whether the device is running **AOS-CX** or **ProCurve**, then delegates execution to the corresponding handler (`arubacx.py` or `procurve.py`), which can also be invoked directly. Both extract model, firmware version, serial number, uptime, CPU utilization, and calculate memory usage percentages (including VSF stack members) into `system_info`. They execute dedicated, granular switch troubleshooting commands (`show system fans`, `show system temperature`, `show system power-supply` on ProCurve; `show environment fan`, `show environment temperature`, `show environment power-supply` on AOS-CX). Fanless or compact ProCurve switches (such as Aruba 2530/2930F) without physical chassis temperature sensors return empty CLI tables, which are handled gracefully with 0 false alerts.
 - **AirWave (`airwave.py`)**: Automates Aruba AirWave WebUI login via `selenium`, navigates to the Device Monitoring page (`/ap_monitoring?id={device_id}`), dynamically adapts window width to capture the entire Device Info table without horizontal clipping, and parses inventory attributes into `system_info`. Resolves device IDs using `utils/airwave.py` via `pyairwave`.
 - **Generic Ping (`generic_ping.py`)**: Centralizes all low-level ICMP ping commands (`ping_with_output`) across platforms with configurable packet count (`count`). Exposes `execute_generic_ping` as a reusable helper for any handler requiring network latency checks (e.g. FortiGate interface pings with `source: host`), returning `latency`, an optional `screenshot`, and emitting `CRITICAL` alerts on timeout or unreachable destination.
 
 ### 5. Modular Exporters (`exporters/`)
 Once all handlers have finished executing, the cumulative results are passed to the exporters.
-- **Docx Exporter (`docx_exporter.py`)**: Injects collected evidence into the Word template across all configured languages (`template_<lang>.docx`), exposes `res.host.alerts` for table rendering, and injects `docxtpl.InlineImage` instances into `handlers.<HANDLER>.screenshot.image` for rendered reports.
+- **Docx Exporter (`docx_exporter.py`)**: Injects collected evidence into the Word template across all configured languages (`template_<lang>.docx`), exposes `res.host.alerts` for table rendering, `res.alerts` for setup thresholds, and injects `docxtpl.InlineImage` instances into `handlers.<HANDLER>.screenshot.image` for rendered reports.
 
 ### 6. Build and Distribution
 To simplify deployment for users without a Python environment, the application is compiled into a standalone Windows executable.
@@ -49,21 +49,27 @@ To simplify deployment for users without a Python environment, the application i
 ## Key Design Choices
 
 ### Cumulative Subsystem Namespacing Contract
-To ensure architectural cleanliness, prevent namespace pollution, and support cumulative multi-rule execution without collisions, evidence is segregated into 4 clean domains:
-1. **`res.host`**: Houses host identity (`res.host.name`) and the unified host-level alerts collection (`res.host.alerts`). Each alert in `res.host.alerts` includes a `handler` attribute identifying which handler generated the alert.
+To ensure architectural cleanliness, prevent namespace pollution, and support cumulative multi-rule execution without collisions, evidence is segregated into clean domains:
+1. **`res.host`**: Houses host identity (`res.host.name`) and the unified active host-level alerts collection (`res.host.alerts`). Each alert in `res.host.alerts` includes a `handler` attribute identifying which handler or evaluator generated the alert.
 2. **`res.rules`**: Tracks all matched and executed rules as a direct list of rule names (`res.rules`), allowing direct iteration and joining in Word templates.
 3. **`res.handlers`**: All execution evidence is strictly isolated under `res.handlers.<HANDLER>`. Hardware telemetry (`system_info`), ping latency (`latency`), and interface metrics (`if_status`) are isolated per handler without duplicating alerts inside handler objects.
 4. **`res.sources`**: Discovery attributes are preserved under `res.sources.<SOURCE>` with discovery provenance tracked in `res.sources.list`.
+5. **`res.alerts`**: Setup thresholds container (`ThresholdsContainer`). When iterated in Word templates (`{%tr for th in res.alerts %}`), it displays only the configured setup thresholds (`th.name`, `th.warning`, `th.critical`).
 
-### Unified Handler Alerts Architecture (`res.host.alerts`)
-Warnings and critical errors detected during handler execution are reported through a standardized alert dictionary contract and consolidated directly on `res.host.alerts`:
-- **Schema**:
-  - `handler`: Identifier of the originating handler (`"generic_ping"`, `"arubacx"`, `"procurve"`, `"fortigate"`).
-  - `severity`: Alert severity level (`"CRITICAL"` or `"WARNING"`).
-  - `type`: Category of the alert (`"ping"`, `"temperature"`, `"fan"`, `"power_supply"`, `"interface"`, `"device"`, `"ssh"`).
-  - `component`: Component identifier or label (`"ICMP"`, `"Fan 2"`, `"Sensor 1/3"`, `"WAN1"`).
-  - `message`: Descriptive human-readable explanation (e.g. `"Ping timeout or unreachable (10.0.0.1)"`, `"Fan 2: Failed"`).
-  - `status`: Device/subsystem state string (`"Timeout"`, `"Failed"`, `"Critical"`, `"DOWN"`).
+### Unified Handler Alerts & Threshold Engine (`res.host.alerts` vs `res.alerts`)
+Warnings and critical errors detected during handler execution or telemetry evaluation are cleanly separated:
+- **Setup Thresholds Container (`res.alerts`)**:
+  - Implemented in `utils/alert_evaluator.py` via `ThresholdsContainer`.
+  - Default integer thresholds for CPU (`75`/`90`), Memory (`75`/`90`), Interface Utilization (`80`/`100`), Packet Buffers (`85`/`95`), Tx Drops (`85`/`95`), Rx Errors (`85`/`95`), Message Buffers (`85`/`95`), Fans (`1`/`2`), Temperature (`25`/`60`), Power Supplies (`1`/`2`), Storage (`70`/`90`), and Firmware Version (`1`/`2`).
+  - Word templates iterating `res.alerts` display setup threshold parameters without listing active device faults.
+- **Active Triggered Host Alerts (`res.host.alerts`)**:
+  - Hardware failures, connectivity timeouts, and metrics exceeding warning/critical thresholds are attached directly to `res.host.alerts`.
+  - **Schema**:
+    - `handler`: Identifier of the originating handler (`"generic_ping"`, `"arubacx"`, `"procurve"`, `"fortigate"`).
+    - `severity`: Uppercase alert severity level (`"CRITICAL"` or `"WARNING"`).
+    - `type`: Category of the alert (`"cpu"`, `"memory"`, `"storage"`, `"temperature"`, `"fan"`, `"power_supply"`, `"ping"`, `"interface"`, `"device"`, `"ssh"`).
+    - `component`: Component identifier or label (`"ICMP"`, `"Fan 2"`, `"Sensor 1/3"`, `"WAN1"`, `"CPU"`).
+    - `message`: Descriptive human-readable explanation.
 - **Word Template Table Integration**:
   Word report templates (`template.docx`) can directly iterate through `res.host.alerts` in summary tables:
   ```jinja2

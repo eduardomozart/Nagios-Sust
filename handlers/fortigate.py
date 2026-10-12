@@ -1001,7 +1001,6 @@ def handle(host, host_data, options):
                     "type": "interface",
                     "component": intf_key,
                     "message": f"Interface {intf_key} has 0.0.0.0 IP (logical down)",
-                    "status": "0.0.0.0",
                 })
                 
             # 2. Monitored interface is DOWN with an assigned IP address
@@ -1014,7 +1013,6 @@ def handle(host, host_data, options):
                     "type": "interface",
                     "component": intf_key,
                     "message": f"Interface {intf_key} link is DOWN",
-                    "status": "DOWN",
                 })
                 
             # 3. Ping gateway or interface was requested, but failed (timeout or error)
@@ -1034,7 +1032,6 @@ def handle(host, host_data, options):
                     "type": "ping",
                     "component": f"{intf_key} Ping",
                     "message": f"Ping timeout on interface {intf_key} ({intf_data.get('ping_target_ip', '')})",
-                    "status": "Timeout",
                 })
 
         result["error"] = error_code
@@ -1055,7 +1052,6 @@ def handle(host, host_data, options):
             "type": "execution",
             "component": "FortiGate",
             "message": f"FortiGate automation error: {e}",
-            "status": "Failed",
         })
     finally:
         driver.quit()

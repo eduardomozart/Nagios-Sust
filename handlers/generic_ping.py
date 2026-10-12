@@ -79,7 +79,6 @@ def execute_generic_ping(host, host_data=None, options=None, handler_name="gener
             "type": "ping",
             "component": "ICMP",
             "message": f"Ping timeout or unreachable ({ip_address})",
-            "status": "Timeout",
         })
         print(f"[{host}] Ping timeout or unreachable.")
         

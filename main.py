@@ -7,6 +7,7 @@ import re
 
 from utils.config import load_config
 from utils.exit_codes import ERR_DEVICE_PROMPT_ABORTED
+from utils.alert_evaluator import build_thresholds_container, evaluate_host_thresholds
 
 VERSION = "DEV_BUILD"
 
@@ -188,6 +189,7 @@ def main():
     else:
         hosts = prompt_for_devices(config, source_options)
 
+    thresholds_container = build_thresholds_container(config.get("alerts"))
     results = []
 
     for host_data in hosts:
@@ -278,12 +280,18 @@ def main():
             except Exception as e:
                 print(f"Error executing handler for {host}: {e}")
 
+        # Evaluate telemetry against configured thresholds and create alerts on host
+        th_alerts = evaluate_host_thresholds(handlers_obj, thresholds_container, host)
+        for th_a in th_alerts:
+            host_obj["alerts"].append(th_a)
+
         # Assemble cumulative result for this host
         cumulative_item = {
             "host": host_obj,
             "rules": rules_list,
             "handlers": handlers_obj,
             "sources": sources_obj,
+            "alerts": thresholds_container,
         }
         results.append(cumulative_item)
 

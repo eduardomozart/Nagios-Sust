@@ -224,7 +224,6 @@ def handle(host, host_data, options):
                     "type": "device",
                     "component": host,
                     "message": f"Device {host} status is DOWN in AirWave",
-                    "status": "DOWN",
                 })
 
             print(
@@ -244,7 +243,6 @@ def handle(host, host_data, options):
             "type": "execution",
             "component": "AirWave",
             "message": f"AirWave automation error: {e}",
-            "status": "Failed",
         })
     finally:
         if driver:
