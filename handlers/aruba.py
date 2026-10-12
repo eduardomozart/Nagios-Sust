@@ -1,4 +1,4 @@
-from utils.ssh import run_ssh_command
+from utils.ssh import run_ssh_command, classify_ssh_error
 import handlers.arubacx as arubacx_handler
 import handlers.procurve as procurve_handler
 
@@ -56,12 +56,7 @@ def handle(host, alert, options, pre_collected_output=None):
             print(f"[{host}] Aruba dispatcher execution error: {e}")
             return {
                 "host": host,
-                "wan_status": {},
-                "latencies": [],
-                "screenshot_path": None,
-                "system_info": {},
-                "error": str(e),
-                "has_failure": True
+                "error": classify_ssh_error(e),
             }
 
     try:
@@ -80,10 +75,5 @@ def handle(host, alert, options, pre_collected_output=None):
         print(f"[{host}] Aruba dispatcher execution error: {e}")
         return {
             "host": host,
-            "wan_status": {},
-            "latencies": [],
-            "screenshot_path": None,
-            "system_info": {},
-            "error": str(e),
-            "has_failure": True
+            "error": classify_ssh_error(e),
         }

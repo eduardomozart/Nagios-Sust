@@ -13,6 +13,14 @@ import time
 import os
 import re
 from utils.network import ip_netmask_to_cidr, ping_host
+from utils.error_codes import (
+    ERR_OK,
+    ERR_IF_DOWN,
+    ERR_IF_LOGICAL_DOWN,
+    ERR_PING_TIMEOUT,
+    ERR_AUTH_FAILED,
+    ERR_AUTOMATION_FAILED,
+)
 
 
 def parse_fortigate_faceplate_ports_html(html_content):
@@ -472,8 +480,8 @@ def _fetch_all_ipsec_tunnels_via_cli(driver, host):
         print(f"[{host}] CLI bulk IPsec extraction exception: {e}")
         return {}
 
-def _extract_wan_status(driver, host, options):
-    wan_status = {}
+def _extract_if_status(driver, host, options):
+    if_status = {}
     
     diagnose_intfs = options.get("diagnose_interfaces", ["wan1", "wan2"])
     gather_gateway = options.get("gather_gateway", False)
@@ -664,7 +672,7 @@ def _extract_wan_status(driver, host, options):
                     if target_ip:
                         latency = _ping_via_cli(driver, target_ip, host, interface_name=ping_intf_name)
         
-        wan_status[key] = {
+        if_status[key] = {
             "status": status_clean,
             "ip": ip,
             "mask": mask,
@@ -674,7 +682,9 @@ def _extract_wan_status(driver, host, options):
             "ping_target_ip": target_ip if target_ip else ""
         }
 
-    return wan_status
+    return if_status
+
+_extract_wan_status = _extract_if_status
 
 def parse_fortigate_system_info_html(html_content):
     """
@@ -847,10 +857,7 @@ def handle(host, alert_info, options):
     result = {
         "host": host,
         "url": url,
-        "wan_status": {},
-        "system_info": {},
-        "screenshot_path": None,
-        "error": None
+        "error": ERR_OK,
     }
 
     try:
@@ -937,36 +944,42 @@ def handle(host, alert_info, options):
             screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
             
             driver.save_screenshot(screenshot_path)
-            result["screenshot_path"] = screenshot_path
+            result["screenshot"] = {
+                "image": None,
+                "path": screenshot_path,
+                "filename": screenshot_filename,
+                "captured": True,
+            }
             print(f"[{host}] Screenshot saved at {screenshot_path}")
 
         # 4. Extract Interface status and run latency checks
-        result["wan_status"] = _extract_wan_status(driver, host, options)
+        result["if_status"] = _extract_if_status(driver, host, options)
         
         # 5. Extract System Information (if enabled)
         if options.get("gather_system_info", True):
-            result["system_info"] = _extract_system_info(driver, host, options)
-            if result["system_info"]:
-                print(f"[{host}] System info: S/N={result['system_info'].get('serial_number')}, Version={result['system_info'].get('version')}, Uptime={result['system_info'].get('uptime')}")
+            sys_info = _extract_system_info(driver, host, options)
+            if sys_info:
+                result["system_info"] = sys_info
+                print(f"[{host}] System info: S/N={sys_info.get('serial_number')}, Version={sys_info.get('version')}, Uptime={sys_info.get('uptime')}")
         
-        # Populate universal latencies array for exporters
+        # Populate latency array and determine error code
         latencies = []
-        has_failure = False
-        for intf_key, intf_data in result["wan_status"].items():
+        error_code = ERR_OK
+        for intf_key, intf_data in result["if_status"].items():
             status = intf_data.get("status", "")
             ip = intf_data.get("ip", "")
             
             # 1. 0.0.0.0 (Logical down)
-            if ip == "0.0.0.0":
-                has_failure = True
+            if ip == "0.0.0.0" and error_code == ERR_OK:
+                error_code = ERR_IF_LOGICAL_DOWN
                 
             # 2. Monitored interface is DOWN with an assigned IP address
-            if "DOWN" in status and ip and ip != "0.0.0.0":
-                has_failure = True
+            if "DOWN" in status and ip and ip != "0.0.0.0" and error_code == ERR_OK:
+                error_code = ERR_IF_DOWN
                 
             # 3. Ping gateway or interface was requested, but failed (timeout)
-            if intf_data.get("ping_interface") and status.startswith("UP") and not intf_data.get("latency"):
-                has_failure = True
+            if intf_data.get("ping_interface") and status.startswith("UP") and not intf_data.get("latency") and error_code == ERR_OK:
+                error_code = ERR_PING_TIMEOUT
                 
             val = intf_data.get("latency")
             if val:
@@ -975,15 +988,20 @@ def handle(host, alert_info, options):
                 except:
                     pass
                     
-        result["latencies"] = latencies
-        result["has_failure"] = has_failure
+        if latencies:
+            result["latency"] = latencies
+        result["error"] = error_code
 
-        wan_str = ", ".join([f"{k}={v}" for k, v in result["wan_status"].items()])
-        print(f"[{host}] Collected status: {wan_str}")
+        if_str = ", ".join([f"{k}={v}" for k, v in result["if_status"].items()])
+        print(f"[{host}] Collected status: {if_str}")
 
     except Exception as e:
         print(f"[{host}] Error during automation: {e}")
-        result["error"] = str(e)
+        err_str = str(e).lower()
+        if "login" in err_str or "auth" in err_str:
+            result["error"] = ERR_AUTH_FAILED
+        else:
+            result["error"] = ERR_AUTOMATION_FAILED
     finally:
         driver.quit()
 

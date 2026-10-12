@@ -196,9 +196,27 @@ def main():
         
         if not matched_rules:
             continue
-            
+
+        host_obj = {
+            "name": host,
+        }
+        rules_list = []
+        handlers_obj = {
+            "list": [],
+        }
+
+        # Build sources subsystem
+        sources_list = host_data.get("sources", [])
+        sources_obj = {
+            "list": list(sources_list) if isinstance(sources_list, list) else [sources_list],
+        }
+        for src in sources_obj["list"]:
+            if src in host_data and isinstance(host_data[src], dict):
+                sources_obj[src] = host_data[src]
+
         for rule in matched_rules:
             handler_name = rule["handler"]
+            rules_list.append(rule["name"])
             print(f"\nHost '{host}' matched rule '{rule['name']}'. Executing handler '{handler_name}'...")
             
             options = rule.get("options", {})
@@ -215,25 +233,39 @@ def main():
                 handler_module = importlib.import_module(f"handlers.{handler_name}")
                 result = handler_module.handle(host, host_data, options)
                 
-                # Inject rule metadata, sources flat list, and namespaced source dictionaries
                 if isinstance(result, dict):
-                    result["rule_name"] = rule["name"]
-                    result["handler"] = handler_name
+                    handler_entry = {
+                        "error": int(result.get("error", 0)),
+                    }
+                    if "latency" in result and result["latency"]:
+                        pings = result["latency"] if isinstance(result["latency"], list) else [result["latency"]]
+                        valid_pings = [p for p in pings if isinstance(p, (int, float))]
+                        if valid_pings:
+                            handler_entry["latency"] = max(valid_pings)
+                    if "if_status" in result:
+                        handler_entry["if_status"] = result["if_status"]
+                    if "system_info" in result and result["system_info"]:
+                        handler_entry["system_info"] = result["system_info"]
+                    if "screenshot" in result and result["screenshot"]:
+                        handler_entry["screenshot"] = result["screenshot"]
 
-                    # Ensure sources is explicitly a flat list of strings
-                    sources = host_data.get("sources", [])
-                    result["sources"] = list(sources) if isinstance(sources, list) else [sources]
+                    if handler_name not in handlers_obj["list"]:
+                        handlers_obj["list"].append(handler_name)
+                    handlers_obj[handler_name] = handler_entry
 
-                    # Inject namespaced source sub-dictionaries (res.<SOURCE>) into result
-                    for src in result["sources"]:
-                        if src in host_data and isinstance(host_data[src], dict):
-                            result[src] = host_data[src]
-
-                results.append(result)
             except ImportError:
                 print(f"Error: Handler '{handler_name}' not found in handlers/")
             except Exception as e:
                 print(f"Error executing handler for {host}: {e}")
+
+        # Assemble cumulative result for this host
+        cumulative_item = {
+            "host": host_obj,
+            "rules": rules_list,
+            "handlers": handlers_obj,
+            "sources": sources_obj,
+        }
+        results.append(cumulative_item)
 
     if not results:
         print("No evidence generated (no hosts matched the rules or execution failed).")

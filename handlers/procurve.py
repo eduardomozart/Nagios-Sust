@@ -1,5 +1,5 @@
 import re
-from utils.ssh import run_ssh_command
+from utils.ssh import run_ssh_command, classify_ssh_error
 
 def parse_aoss_system(output):
     """
@@ -103,6 +103,8 @@ def parse_aoss_system(output):
         "members": members
     }
 
+from utils.error_codes import ERR_OK
+
 def handle(host, alert, options, pre_collected_output=None):
     """
     Dedicated handler for ProCurve / ArubaOS-S switches.
@@ -110,11 +112,7 @@ def handle(host, alert, options, pre_collected_output=None):
     """
     result = {
         "host": host,
-        "wan_status": {},
-        "latencies": [],
-        "screenshot_path": None,
-        "system_info": {},
-        "error": None
+        "error": ERR_OK,
     }
 
     try:
@@ -150,7 +148,6 @@ def handle(host, alert, options, pre_collected_output=None):
         print(f"[{host}] Collected ProCurve System Info: Version='{system_info.get('version')}', Uptime='{system_info.get('uptime')}', CPU={system_info.get('cpu_util')}%, Mem={system_info.get('memory_usage')}%")
     except Exception as e:
         print(f"[{host}] ProCurve execution error: {e}")
-        result["error"] = str(e)
-        result["has_failure"] = True
+        result["error"] = classify_ssh_error(e)
 
     return result

@@ -1,9 +1,10 @@
 import unittest
+from unittest.mock import patch
 import handlers.procurve as procurve_mod
 
 class TestProCurveHandler(unittest.TestCase):
     def test_procurve_vsf_system_parsing(self):
-        """Validates standalone ProCurve VSF parser with anonymized output."""
+        """Validates standalone ProCurve VSF parser with mock output."""
         aoss_output = """SW-ACCESS-01# show system
  
 Status and Counters - General System Information
@@ -101,10 +102,19 @@ Memory   - Total   : 100
         self.assertIn("system_info", res)
         self.assertEqual(res["system_info"]["version"], "WC.16.11.0027")
         self.assertEqual(res["system_info"]["memory_usage"], 50.0)
+        self.assertEqual(res["error"], 0)
 
     def test_procurve_handle_callable(self):
         """Confirms procurve module exposes a callable handle function."""
         self.assertTrue(callable(procurve_mod.handle))
+
+    @patch("handlers.procurve.run_ssh_command", side_effect=Exception("SSH connection timed out"))
+    def test_procurve_timeout_classification(self, mock_ssh):
+        """Verifies that SSH timeout maps to ERR_CONNECTION_TIMEOUT."""
+        from utils.error_codes import ERR_CONNECTION_TIMEOUT
+        res = procurve_mod.handle("SW-ACCESS-01", {}, {"username": "admin", "password": "x"})
+        self.assertEqual(res["error"], ERR_CONNECTION_TIMEOUT)
+
 
 if __name__ == "__main__":
     unittest.main(buffer=True)

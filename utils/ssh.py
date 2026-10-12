@@ -1,4 +1,16 @@
 import time
+from utils.error_codes import ERR_CONNECTION_TIMEOUT, ERR_AUTOMATION_FAILED
+
+def classify_ssh_error(e):
+    """
+    Translates an SSH or network exception into a standardized error code:
+    ERR_CONNECTION_TIMEOUT if timed out, otherwise ERR_AUTOMATION_FAILED.
+    """
+    err_str = str(e).lower()
+    if "timed out" in err_str or "timeout" in err_str:
+        return ERR_CONNECTION_TIMEOUT
+    return ERR_AUTOMATION_FAILED
+
 
 def run_ssh_command(host, username, password, commands, port=22, timeout=15):
     """

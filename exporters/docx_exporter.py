@@ -133,37 +133,62 @@ def export(results, config):
         }
         
         for res in results:
-            res_context = dict(res)
-            
-            # Ensure sources is always present as a list of strings
-            sources = res.get("sources", [])
-            res_context["sources"] = list(sources) if isinstance(sources, list) else [sources]
+            host_val = res.get("host", {})
+            host_obj = dict(host_val) if isinstance(host_val, dict) else {"name": str(host_val)}
 
-            # Ensure namespaced source sub-dictionaries (res.<SOURCE>) are present
-            for src in res_context["sources"]:
-                if src not in res_context or not isinstance(res_context[src], dict):
-                    res_context[src] = res.get(src, {}) if isinstance(res.get(src), dict) else {}
-
-            host = res.get("host", "Unknown")
-            wan_stats = res.get("wan_status", {})
-            
-            # Grab all valid pings for this host from the standardized array
-            pings = res.get("latencies", [])
-            
-            res_context["latency"] = ""
-            
-            if res.get("has_failure"):
-                res_context["latency"] = "" # Force the host into Ping Timeout summary
-            elif pings:
-                res_context["latency"] = max(pings) # Evaluate health based on their worst active link
-            
-            screenshot_path = res.get("screenshot_path")
-            if screenshot_path and os.path.exists(screenshot_path):
-                # docxtpl requires InlineImage to inject images into jinja tags
-                res_context['screenshot'] = InlineImage(doc, screenshot_path, width=Inches(6.0))
+            rules_val = res.get("rules", [])
+            if isinstance(rules_val, list):
+                rules_list = list(rules_val)
+            elif isinstance(rules_val, dict):
+                rules_list = list(rules_val.get("list", []))
+            elif rules_val:
+                rules_list = [str(rules_val)]
             else:
-                res_context['screenshot'] = None
-                
+                rules_list = []
+
+            handlers_val = res.get("handlers", {})
+            if isinstance(handlers_val, dict):
+                handlers_obj = dict(handlers_val)
+                if "list" not in handlers_obj:
+                    handlers_obj["list"] = []
+            elif isinstance(handlers_val, list):
+                handlers_obj = {"list": list(handlers_val)}
+            else:
+                handlers_obj = {"list": []}
+
+            sources_val = res.get("sources", {})
+            if isinstance(sources_val, dict):
+                sources_obj = dict(sources_val)
+                if "list" not in sources_obj:
+                    sources_obj["list"] = []
+            elif isinstance(sources_val, list):
+                sources_obj = {"list": list(sources_val)}
+            elif sources_val:
+                sources_obj = {"list": [str(sources_val)]}
+            else:
+                sources_obj = {"list": []}
+
+            res_context = {
+                "host": host_obj,
+                "rules": rules_list,
+                "handlers": handlers_obj,
+                "sources": sources_obj,
+            }
+
+            # Inject InlineImage for any captured handler screenshots
+            handlers_data = res_context["handlers"]
+            for h_name in handlers_data.get("list", []):
+                h_entry = handlers_data.get(h_name, {})
+                if "screenshot" in h_entry and isinstance(h_entry["screenshot"], dict):
+                    s_data = h_entry["screenshot"]
+                    path = s_data.get("path")
+                    if path and os.path.exists(path) and InlineImage and Inches:
+                        s_data["image"] = InlineImage(doc, path, width=Inches(6.0))
+                        s_data["captured"] = True
+                    else:
+                        s_data["image"] = None
+                        s_data["captured"] = False
+
             context['results'].append(res_context)
             
         try:

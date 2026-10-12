@@ -22,7 +22,7 @@ credentials:
 
 ### Writing Rules
 Rules define what equipment the script should automate.
-**Multiple Rules**: The script evaluates rules from top to bottom. If a host matches *multiple* rules, ALL matching rules will be executed in order! This means you can run a `fortigate` handler to grab WAN status AND a `generic_ping` handler for the exact same host, and both will appear as separate entries in your report.
+**Multiple Rules (Cumulative Host Execution)**: The script evaluates rules from top to bottom. If a host matches *multiple* rules, ALL matching rules will execute in order and accumulate into **one unified result entry per host** in your report! For example, if a host matches both a `generic_ping` rule and an `aruba` rule, both handlers will execute for that device. The ping latency and the switch telemetry are safely namespaced under their respective handlers (`res.handlers.generic_ping.latency` and `res.handlers.aruba.system_info`), and all matched rule names are tracked in `res.rules`.
 
 You can match hosts either using simple `startswith` prefixes or powerful `regex` expressions.
 
@@ -165,85 +165,185 @@ nagios_pdf:
 
 ## 4. Customizing the Word Template
 You don't need to know Python to change the layout of the final report!
-Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Microsoft Word, rename it to remove the `.example` part, and modify it as you please. You can change fonts, colors, add company logos, or change the table layout. 
+Simply open `template_pt-BR.example.docx` or `template_en.example.docx` in Microsoft Word, rename it to remove the `.example` part, and modify it as you please. You can change fonts, colors, add company logos, or change the table layout.
 
-### Available Template Variables (All Handlers):
-- `{{ res.host }}`: The equipment name (e.g. `SW-CORE-01`, `FGT-CORE-01`)
-- `{{ res.sources }}`: List of sources that discovered the device (e.g. `["nagios_pdf"]`, `["airwave"]`, or `["nagios_pdf", "airwave"]`). If multiple sources discover the device, each source is appended to this list.
-  - Display as text: `{{ res.sources | join(', ') }}`
-- **Source-Namespaced Dictionaries (`res.<SOURCE>`)**: All attributes collected during discovery are strictly housed inside their source name sub-dictionary, completely eliminating key collisions between sources and handlers:
-  - **`{{ res.nagios_pdf }}`**: Alert details from Nagios PDF (e.g. `{{ res.nagios_pdf.status }}`, `{{ res.nagios_pdf.service }}`).
-  - **`{{ res.airwave }}`**: Device inventory from AirWave API (e.g. `{{ res.airwave.device_id }}`, `{{ res.airwave.ip_address }}`, `{{ res.airwave.model }}`).
-  - **Conditional template block example**:
-    ```text
-    {%p if res.nagios_pdf %}
-    Alert: {{ res.nagios_pdf.service }} (Status: {{ res.nagios_pdf.status }})
-    {%p endif %}
-    {%p if res.airwave %}
-    AirWave: {{ res.airwave.model }} | IP: {{ res.airwave.ip_address }} | ID: {{ res.airwave.device_id }}
-    {%p endif %}
-    ```
-- `{{ res.rule_name }}`: The name of the rule that was matched (e.g., "Aruba Switch System Info")
-- `{{ res.handler }}`: The handler executed for this entry (e.g. `fortigate`, `aruba`, `generic_ping`)
-- `{{ res.latency }}`: The worst ping latency across all valid links in ms (empty if unreachable)
-- `{{ res.screenshot }}`: The injected screenshot
+### Cumulative Subsystem Namespacing Contract
+Nagios-Sust structures all collected evidence into 4 distinct architectural domains per host: `host`, `rules`, `handlers`, and `sources`. When a device matches multiple rules, results accumulate into **one unified result entry per host** without overwriting or polluting namespaces:
 
-### Universal System Information Tags (`res.system_info`):
-All hardware handlers (`fortigate`, `aruba`, `arubacx`, `procurve`) populate a standardized `res.system_info` object without duplicating fields at the root of `res`. You can use these safe, generic tags in your Word templates across all device types:
+```json
+{
+  "host": {
+    "name": "SW-CORE-01"
+  },
+  "rules": [
+    "Core Switches Ping",
+    "Core Switches Telemetry"
+  ],
+  "handlers": {
+    "list": ["generic_ping", "aruba"],
+    "generic_ping": {
+      "error": 0,
+      "latency": 15,
+      "screenshot": {
+        "image": "<InlineImage>",
+        "path": "/path/to/screenshots/20261011_120000/generic_ping/screenshot_SW-CORE-01.png",
+        "filename": "screenshot_SW-CORE-01.png",
+        "captured": true
+      }
+    },
+    "aruba": {
+      "error": 0,
+      "system_info": {
+        "hostname": "SW-CORE-01",
+        "os_type": "AOS-CX",
+        "model": "R0X24C 6405 v2 Chassis",
+        "serial_number": "SG0000000001",
+        "version": "FL.10.16.1020",
+        "uptime": "38 weeks, 22 hours, 53 minutes",
+        "cpu_util": 18,
+        "memory_usage": 15.0,
+        "members": []
+      }
+    }
+  },
+  "sources": {
+    "list": ["nagios_pdf", "airwave"],
+    "nagios_pdf": {
+      "status": "CRITICAL",
+      "service": "PING"
+    },
+    "airwave": {
+      "device_id": "538",
+      "ip": "10.0.0.1",
+      "model": "Aruba 6300M"
+    }
+  }
+}
+```
 
-- `{{ res.system_info.hostname }}`: The detected hostname
-- `{{ res.system_info.os_type }}`: Operating system (`FortiOS`, `AOS-CX`, or `AOS-S`)
-- `{{ res.system_info.model }}`: Hardware or chassis model (e.g. `R0X24C 6405 v2 Chassis`, `ProCurve Switch`, `FortiGate`)
-- `{{ res.system_info.serial_number }}`: Chassis or device serial number
-- `{{ res.system_info.version }}`: Firmware/Software version (e.g. `v7.4.11`, `FL.10.16.1020`, `WC.16.11.0027`)
-- `{{ res.system_info.uptime }}`: Uptime string (e.g. `2h 19m 51s`, `38 weeks, 22 hours, 53 minutes`, `93 days`)
-- `{{ res.system_info.cpu_util }}`: CPU utilization percentage (e.g. `18`, `39`)
-- `{{ res.system_info.memory_usage }}`: Memory utilization percentage (e.g. `15`, `36.8`)
-- `{{ res.system_info.members }}`: List of VSF stack members (for stacked switches)
+### The 4 Subsystem Domains
 
-**Universal System Info Template Example (Works for any equipment):**
+1. **`res.host` (Identity)**:
+   - `{{ res.host.name }}`: The device name (e.g. `SW-CORE-01`, `FGT-CORE-01`).
+
+2. **`res.rules` (Rule Metadata)**:
+   - `{{ res.rules }}`: Direct list of all matched rule names executed for this host.
+   - Display as text: `{{ res.rules | join(', ') }}`
+   - Iterate over rules: `{%p for rule in res.rules %}`
+
+3. **`res.handlers` (Execution Evidence)**:
+   - `{{ res.handlers.list }}`: List of handlers executed for this host (e.g. `["generic_ping", "fortigate"]`).
+   - **`res.handlers.<HANDLER>`**: Isolated evidence namespace for each executed handler:
+     - `{{ res.handlers.<HANDLER>.error }}`: Standard integer error code (`0` for success, non-zero for faults).
+     - `{{ res.handlers.<HANDLER>.latency }}`: Worst ping latency integer in ms (only present when the handler pings the device).
+     - `{{ res.handlers.<HANDLER>.system_info }}`: Hardware and OS telemetry dictionary (only present when scraped or parsed by the handler):
+       - `{{ res.handlers.<HANDLER>.system_info.hostname }}`: Detected hostname
+       - `{{ res.handlers.<HANDLER>.system_info.os_type }}`: Operating system (`FortiOS`, `AOS-CX`, or `AOS-S`)
+       - `{{ res.handlers.<HANDLER>.system_info.model }}`: Hardware or chassis model
+       - `{{ res.handlers.<HANDLER>.system_info.serial_number }}`: Chassis/device serial number
+       - `{{ res.handlers.<HANDLER>.system_info.version }}`: Firmware/software version
+       - `{{ res.handlers.<HANDLER>.system_info.uptime }}`: Uptime string
+       - `{{ res.handlers.<HANDLER>.system_info.cpu_util }}`: CPU utilization percentage
+       - `{{ res.handlers.<HANDLER>.system_info.memory_usage }}`: Memory utilization percentage
+       - `{{ res.handlers.<HANDLER>.system_info.members }}`: List of VSF stack members (for stacked switches)
+     - `{{ res.handlers.<HANDLER>.if_status }}`: Interface status dictionary (populated by `fortigate` handler):
+       - Iterated using: `{%p for intf_name, intf_data in res.handlers.fortigate.if_status.items() %}`
+       - `{{ intf_data.status }}`: Link status (e.g. `UP`, `DOWN`)
+       - `{{ intf_data.ip }}`: Interface IP address
+       - `{{ intf_data.mask }}`: CIDR subnet mask
+       - `{{ intf_data.gw }}`: Gateway IP address
+       - `{{ intf_data.latency }}`: Interface ping latency in ms
+     - `{{ res.handlers.<HANDLER>.screenshot }}`: Visual screenshot metadata (only present if captured):
+       - `{{ res.handlers.<HANDLER>.screenshot.image }}`: Word-injected image object (`docxtpl.InlineImage`)
+       - `{{ res.handlers.<HANDLER>.screenshot.path }}`: Absolute file path to the saved screenshot
+       - `{{ res.handlers.<HANDLER>.screenshot.filename }}`: Base filename of the screenshot
+       - `{{ res.handlers.<HANDLER>.screenshot.captured }}`: Boolean flag indicating if file was successfully saved
+
+4. **`res.sources` (Discovery Attributes)**:
+   - `{{ res.sources.list }}`: List of sources that discovered the device (e.g. `["nagios_pdf", "airwave"]`).
+   - Display as text: `{{ res.sources.list | join(', ') }}`
+   - **`res.sources.<SOURCE>`**: Sub-dictionary housing discovery attributes without polluting root:
+     - **`{{ res.sources.nagios_pdf }}`**: Alert details from Nagios PDF (e.g. `{{ res.sources.nagios_pdf.status }}`, `{{ res.sources.nagios_pdf.service }}`).
+     - **`{{ res.sources.airwave }}`**: Inventory attributes from AirWave API (e.g. `{{ res.sources.airwave.device_id }}`, `{{ res.sources.airwave.ip }}`, `{{ res.sources.airwave.model }}`).
+
+### Standard Integer Error Codes
+Handlers return standardized numeric error codes (`utils/error_codes.py`) to decouple execution results from presentation languages:
+
+| Error Code | Constant | Meaning |
+|---|---|---|
+| `0` | `ERR_OK` | Operational / Success |
+| `1` | `ERR_IF_DOWN` | Monitored interface physically down |
+| `2` | `ERR_IF_LOGICAL_DOWN` | Monitored interface logically down (unassigned IP `0.0.0.0`) |
+| `3` | `ERR_PING_TIMEOUT` | Ping gateway or interface timed out |
+| `4` | `ERR_DEVICE_DOWN` | Device reported down in discovery/monitoring |
+| `5` | `ERR_DEVICE_NOT_FOUND` | Device not found in inventory enumeration |
+| `6` | `ERR_AUTH_FAILED` | Authentication or login failed |
+| `7` | `ERR_CONNECTION_TIMEOUT` | Connection timed out |
+| `8` | `ERR_AUTOMATION_FAILED` | Handler script or browser automation encountered an unhandled error |
+
+### Multi-Language Error Translation Examples
+
+Because error codes are numbers, templates translate errors into the report's native language using standard Jinja conditions.
+
+#### English Template (`template_en.docx`):
 ```text
-{%p if res.system_info %}
-{% if res.system_info.model %}Model: {{ res.system_info.model }} | {% endif %}{% if res.system_info.serial_number %}S/N: {{ res.system_info.serial_number }} | {% endif %}{% if res.system_info.version %}Version: {{ res.system_info.version }} | {% endif %}{% if res.system_info.uptime %}Uptime: {{ res.system_info.uptime }}{% endif %}{% if res.system_info.cpu_util %} | CPU: {{ res.system_info.cpu_util }}%{% endif %}{% if res.system_info.memory_usage %} | Mem: {{ res.system_info.memory_usage }}%{% endif %}
+{%p if res.handlers.fortigate.error == 0 %}
+Status: Operational
+{%p elif res.handlers.fortigate.error == 1 %}
+Status: Error - Interface physically down
+{%p elif res.handlers.fortigate.error == 2 %}
+Status: Error - Interface logically down (IP 0.0.0.0)
+{%p elif res.handlers.fortigate.error == 3 %}
+Status: Error - Ping timeout to gateway
+{%p elif res.handlers.fortigate.error == 6 %}
+Status: Error - Authentication failed
+{%p else %}
+Status: Error - Automation failure (Code {{ res.handlers.fortigate.error }})
 {%p endif %}
 ```
 
-### Available Template Variables (FortiGate Handler):
-The `wan_status` object is a dictionary containing interface details. You can iterate over it using `{%p for intf_key, intf_data in res.wan_status.items() %}`.
+#### Portuguese Template (`template_pt-BR.docx`):
+```text
+{%p if res.handlers.fortigate.error == 0 %}
+Status: Operacional
+{%p elif res.handlers.fortigate.error == 1 %}
+Status: Falha - Interface fisicamente inativa
+{%p elif res.handlers.fortigate.error == 2 %}
+Status: Falha - Interface logicamente inativa (IP 0.0.0.0)
+{%p elif res.handlers.fortigate.error == 3 %}
+Status: Falha - Tempo limite de ping para o gateway
+{%p elif res.handlers.fortigate.error == 6 %}
+Status: Falha - Falha de autenticação
+{%p else %}
+Status: Falha - Erro de automação (Código {{ res.handlers.fortigate.error }})
+{%p endif %}
+```
 
-Each `intf_data` contains the following properties:
-- `{{ intf_data.status }}`: Link status of the interface (e.g., UP, DOWN, DOWN (No IP))
-- `{{ intf_data.ip }}`: The raw IP address of the interface
-- `{{ intf_data.mask }}`: The CIDR mask of the interface
-- `{{ intf_data.gw }}`: The gateway IP address (if extracted or set via custom ping target)
-- `{{ intf_data.ping_interface }}`: Boolean flag indicating if ping was requested for this interface in the configuration
-- `{{ intf_data.ping_target_ip }}`: The actual IP address that was pinged
-- `{{ intf_data.latency }}`: The ping latency in ms (empty if unreachable or not requested)
-
-### Available Template Variables (Generic Ping Handler):
-- Population of global `res.latency` and `res.screenshot`.
-
-You can even use conditional logic directly in Word to show specific text depending on the equipment type or the presence of an error. 
-
-**Pro-Tip**: It's crucial to understand the difference between Paragraph Tags (`{%p`) and Standard Tags (`{%`):
-
-1. **Paragraph Tags (`{%p if ... %}`)**: The `p` stands for "paragraph". When the template engine evaluates this, it **deletes the entire line/paragraph** from the document to prevent blank holes. Because of this, you must ALWAYS put `{%p` tags on their **OWN SEPARATE LINE** (by pressing Enter). If you place normal text or other tags on the same line as a `{%p` tag, they will be accidentally deleted!
-   
-2. **Standard Inline Tags (`{% if ... %}`)**: These tags DO NOT delete the paragraph. You should use these when you want to conditionally insert text in the middle of an existing sentence or line.
-
-3. **MS Word Paragraph Spacing (Ghost Paragraphs)**: When Jinja removes a `{%p` tag, it merges the paragraphs above and below it. If those paragraphs have MS Word's native "Space After" formatting (usually 8pt or 12pt by default), those spaces stack up and look like a huge gap.
-   **Fix**: Select the block of text in your Word template, go to the **Layout** tab -> **Spacing**, and set **After** to `0 pt`.
-
-**Example of combining tags correctly:**
+### Rendering Handler Screenshots in Word
+When `capture_screenshot` is enabled and successful, inject the screenshot using `image`:
 
 ```text
-{%p if res.error %}
-Error: {{ res.error }}
-{%p else %}
-{%p for intf_key, intf_data in res.wan_status.items() %}
-{%p if intf_data.ip %}
-Link Status {{ intf_key }}: {{ intf_data.status }} {% if intf_data.latency %}({{ intf_data.latency }}){% endif %}
+{%p if res.handlers.fortigate.screenshot and res.handlers.fortigate.screenshot.captured %}
+{{ res.handlers.fortigate.screenshot.image }}
+{%p endif %}
+```
+
+### Iterating Over Executed Handlers
+You can also dynamically iterate through all handlers executed for a host:
+
+```text
+{%p for h_name in res.handlers.list %}
+Handler: {{ h_name }} | Error: {{ res.handlers[h_name].error }}
+{%p if res.handlers[h_name].latency %}
+Latency: {{ res.handlers[h_name].latency }} ms
+{%p endif %}
+{%p if res.handlers[h_name].system_info %}
+Model: {{ res.handlers[h_name].system_info.model }} | S/N: {{ res.handlers[h_name].system_info.serial_number }}
 {%p endif %}
 {%p endfor %}
-{%p endif %}
 ```
+
+### Formatting Tips: Paragraph (`{%p`) vs Inline (`{%`) Tags
+1. **Paragraph Tags (`{%p if ... %}`)**: The `p` stands for "paragraph". When evaluated, it **deletes the entire line/paragraph** from the document to avoid blank space. ALWAYS place `{%p` tags on their **OWN SEPARATE LINE** (by pressing Enter). Never place regular text or standard tags on the same line as a `{%p` tag!
+2. **Standard Inline Tags (`{% if ... %}`)**: These tags DO NOT delete paragraphs. Use them when conditionally inserting text inside an existing sentence or table cell.
+3. **MS Word Paragraph Spacing**: When Jinja removes a `{%p` tag, MS Word's native paragraph spacing ("Space After") can accumulate. Select the text block in Word, go to the **Layout** tab -> **Spacing**, and set **After** to `0 pt`.

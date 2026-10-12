@@ -36,6 +36,7 @@ Chassis Serial Nbr     : SG0000000001
         res_cx = aruba_mod.handle("SW-CORE-01", {}, {}, pre_collected_output=cx_output)
         self.assertEqual(res_cx["system_info"]["os_type"], "AOS-CX")
         self.assertEqual(res_cx["system_info"]["version"], "FL.10.16.1020")
+        self.assertEqual(res_cx["error"], 0)
 
         procurve_output = """SW-ACCESS-01# show system
 System Name        : SW-ACCESS-01
@@ -49,10 +50,12 @@ Memory   - Total   : 200
         res_procurve = aruba_mod.handle("SW-ACCESS-01", {}, {}, pre_collected_output=procurve_output)
         self.assertEqual(res_procurve["system_info"]["os_type"], "AOS-S")
         self.assertEqual(res_procurve["system_info"]["version"], "WC.16.11.0027")
+        self.assertEqual(res_procurve["error"], 0)
 
     def test_aruba_handle_callable(self):
         """Confirms aruba dispatcher module exposes a callable handle function."""
         self.assertTrue(callable(aruba_mod.handle))
+
 
 if __name__ == "__main__":
     unittest.main(buffer=True)

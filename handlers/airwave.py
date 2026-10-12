@@ -18,6 +18,13 @@ from utils.airwave import (
     parse_airwave_device_info_html,
     parse_airwave_login_html,
 )
+from utils.error_codes import (
+    ERR_OK,
+    ERR_DEVICE_DOWN,
+    ERR_DEVICE_NOT_FOUND,
+    ERR_CONNECTION_TIMEOUT,
+    ERR_AUTOMATION_FAILED,
+)
 
 # In-memory client cache per server
 _airwave_clients = {}
@@ -98,12 +105,7 @@ def handle(host, alert_info, options):
     result = {
         "host": host,
         "url": base_url,
-        "wan_status": {},
-        "system_info": {},
-        "screenshot_path": None,
-        "latencies": [],
-        "has_failure": False,
-        "error": None,
+        "error": ERR_OK,
     }
 
     # 1. Resolve Device ID
@@ -126,13 +128,11 @@ def handle(host, alert_info, options):
             else:
                 err_msg = f"Device '{host}' not found in AirWave device enumeration."
                 print(f"[{host}] Error: {err_msg}")
-                result["error"] = err_msg
-                result["has_failure"] = True
+                result["error"] = ERR_DEVICE_NOT_FOUND
                 return result
         except Exception as api_err:
             print(f"[{host}] AirWave API error: {api_err}")
-            result["error"] = str(api_err)
-            result["has_failure"] = True
+            result["error"] = ERR_CONNECTION_TIMEOUT
             return result
 
     monitoring_url = f"{base_url}/ap_monitoring?id={device_id}"
@@ -199,7 +199,12 @@ def handle(host, alert_info, options):
             screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
 
             driver.save_screenshot(screenshot_path)
-            result["screenshot_path"] = screenshot_path
+            result["screenshot"] = {
+                "image": None,
+                "path": screenshot_path,
+                "filename": screenshot_filename,
+                "captured": True,
+            }
             print(f"[{host}] Screenshot saved at {screenshot_path}")
 
         # 4. Scrape Device Info Table
@@ -211,7 +216,7 @@ def handle(host, alert_info, options):
 
             status_val = scraped_info.get("status", "").upper()
             if status_val and "DOWN" in status_val:
-                result["has_failure"] = True
+                result["error"] = ERR_DEVICE_DOWN
 
             print(
                 f"[{host}] System info: Model='{scraped_info.get('model')}', "
@@ -223,8 +228,7 @@ def handle(host, alert_info, options):
 
     except Exception as e:
         print(f"[{host}] Error during AirWave automation: {e}")
-        result["error"] = str(e)
-        result["has_failure"] = True
+        result["error"] = ERR_AUTOMATION_FAILED
     finally:
         if driver:
             driver.quit()

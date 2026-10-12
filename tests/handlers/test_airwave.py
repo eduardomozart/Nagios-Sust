@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch, MagicMock
 from utils.airwave import (
     AirWaveClient,
     filter_device_name,
@@ -6,6 +7,8 @@ from utils.airwave import (
     parse_airwave_login_html,
     parse_devices_xml,
 )
+from utils.error_codes import ERR_OK, ERR_DEVICE_NOT_FOUND, ERR_DEVICE_DOWN
+import handlers.airwave as airwave_handler
 
 
 class TestAirWaveIntegration(unittest.TestCase):
@@ -245,6 +248,62 @@ class TestAirWaveIntegration(unittest.TestCase):
         self.assertFalse(state["is_logged_in"])
         self.assertTrue(state["login_failed"])
         self.assertEqual(state["error_message"], "Invalid username or password")
+
+    @patch("handlers.airwave.get_cached_airwave_client")
+    def test_airwave_handle_device_not_found(self, mock_get_client):
+        """Verifies that AirWave handler returns ERR_DEVICE_NOT_FOUND without dummy keys when device is absent."""
+        mock_client = MagicMock()
+        mock_client.get_device_by_host.return_value = None
+        mock_get_client.return_value = mock_client
+
+        options = {
+            "airwave_server": "https://airwave.example.com",
+            "username": "admin",
+            "password": "secretpassword",
+        }
+        res = airwave_handler.handle("NONEXISTENT", {}, options)
+
+        self.assertEqual(res["host"], "NONEXISTENT")
+        self.assertEqual(res["error"], ERR_DEVICE_NOT_FOUND)
+
+    @patch("handlers.airwave.parse_airwave_device_info_html")
+    @patch("handlers.airwave.By")
+    @patch("handlers.airwave.EC")
+    @patch("handlers.airwave.WebDriverWait")
+    @patch("handlers.airwave._login_airwave_webui")
+    @patch("handlers.airwave.webdriver")
+    @patch("handlers.airwave.get_cached_airwave_client")
+    def test_airwave_handle_success_system_info(self, mock_get_client, mock_webdriver, mock_login, mock_wait, mock_ec, mock_by, mock_parse_info):
+        """Verifies that AirWave handler captures system_info and sets error=ERR_OK without dummy keys."""
+        mock_client = MagicMock()
+        mock_client.get_device_by_host.return_value = {"id": "538", "name": "SW-CORE-01"}
+        mock_get_client.return_value = mock_client
+
+        mock_driver = MagicMock()
+        mock_webdriver.Chrome.return_value = mock_driver
+
+        mock_driver.find_elements.return_value = [MagicMock()]
+        mock_parse_info.return_value = {
+            "model": "Aruba 6300M",
+            "serial_number": "SG0000000003",
+            "version": "FL.10.16.1020",
+            "uptime": "38 weeks",
+            "status": "Up",
+        }
+
+        options = {
+            "airwave_server": "https://airwave.example.com",
+            "username": "admin",
+            "password": "secretpassword",
+            "capture_screenshot": False,
+        }
+        res = airwave_handler.handle("SW-CORE-01", {}, options)
+
+        self.assertEqual(res["host"], "SW-CORE-01")
+        self.assertEqual(res["error"], ERR_OK)
+        self.assertIn("system_info", res)
+        self.assertEqual(res["system_info"]["model"], "Aruba 6300M")
+        self.assertEqual(res["system_info"]["serial_number"], "SG0000000003")
 
 
 if __name__ == "__main__":

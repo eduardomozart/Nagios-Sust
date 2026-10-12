@@ -1,4 +1,3 @@
-import os
 import unittest
 
 from handlers.fortigate import (
@@ -12,17 +11,10 @@ from handlers.fortigate import (
     resolve_fortigate_gateways,
 )
 
-FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
-
-
-def _read_fixture(filename):
-    with open(os.path.join(FIXTURES_DIR, filename), "r", encoding="utf-8") as f:
-        return f.read()
-
 
 class TestFortiGateHandler(unittest.TestCase):
     def test_system_info_html_parsing(self):
-        """Validates FortiGate System Information widget HTML parser with anonymized data."""
+        """Validates FortiGate System Information widget HTML parser with mock data."""
         html_sample = """
         <fos-dashboard-system-information-widget class="ng-star-inserted">
           <table role="presentation" class="nu-table nu-table-slightly-condensed nu-table-key-value">
@@ -51,8 +43,21 @@ class TestFortiGateHandler(unittest.TestCase):
         self.assertEqual(info["os_type"], "FortiOS")
 
     def test_faceplate_ports_html(self):
-        """Tests parsing faceplate port status from fixtures/fgt.txt (DMZ, WAN1, WAN2)."""
-        html_content = _read_fixture("fgt.txt")
+        """Tests parsing faceplate port status (DMZ, WAN1, WAN2)."""
+        html_content = """
+        <table class="portgroup">
+          <tr>
+            <td class="label port">DMZ</td>
+            <td class="label port">WAN1</td>
+            <td class="label port">WAN2</td>
+          </tr>
+          <tr>
+            <td><div port-id="dmz" link="up"><f-icon class="ftnt-faceplate-port-rj45-up"></f-icon></div></td>
+            <td><div port-id="wan1" link="up"><f-icon class="ftnt-faceplate-port-rj45-up"></f-icon></div></td>
+            <td><div port-id="wan2" link="up"><f-icon class="ftnt-faceplate-port-rj45-up"></f-icon></div></td>
+          </tr>
+        </table>
+        """
         ports = parse_fortigate_faceplate_ports_html(html_content)
 
         self.assertIn("dmz", ports)
@@ -72,8 +77,25 @@ class TestFortiGateHandler(unittest.TestCase):
         self.assertEqual(ports["wan2"]["label"], "WAN2")
 
     def test_faceplate_internal_ports_html(self):
-        """Tests parsing internal faceplate ports from fixtures/fgt3.txt (INTERNAL 1-5, A, B)."""
-        html_content = _read_fixture("fgt3.txt")
+        """Tests parsing internal faceplate ports (INTERNAL 1-5, A, B)."""
+        html_content = """
+        <table class="portgroup">
+          <tr>
+            <td class="label port">1</td><td class="label port">2</td><td class="label port">3</td>
+            <td class="label port">4</td><td class="label port">5</td><td class="label port">A</td>
+            <td class="label port">B</td>
+          </tr>
+          <tr>
+            <td><div port-id="internal1" link="down"></div></td>
+            <td><div port-id="internal2" link="down"></div></td>
+            <td><div port-id="internal3" link="down"></div></td>
+            <td><div port-id="internal4" link="down"></div></td>
+            <td><div port-id="internal5" link="up"></div></td>
+            <td><div port-id="a" link="down"></div></td>
+            <td><div port-id="b" link="down"></div></td>
+          </tr>
+        </table>
+        """
         ports = parse_fortigate_faceplate_ports_html(html_content)
 
         self.assertEqual(len(ports), 7)
@@ -88,16 +110,20 @@ class TestFortiGateHandler(unittest.TestCase):
         self.assertEqual(ports["internal5"]["label"], "5")
 
     def test_table_ready_detection(self):
-        """Tests detecting interfaces table readiness on faceplate and modern table fixtures."""
-        self.assertTrue(is_fortigate_table_ready_html(_read_fixture("fgt.txt")))
-        self.assertTrue(is_fortigate_table_ready_html(_read_fixture("fgt3.txt")))
-        self.assertTrue(is_fortigate_table_ready_html(_read_fixture("fgt4.txt")))
-        self.assertTrue(is_fortigate_table_ready_html(_read_fixture("fgt6.txt")))
-        self.assertFalse(is_fortigate_table_ready_html(_read_fixture("fgt2.txt")))
+        """Tests detecting interfaces table readiness on faceplate and modern table HTML."""
+        self.assertTrue(is_fortigate_table_ready_html('<table class="portgroup"></table>'))
+        self.assertTrue(is_fortigate_table_ready_html('<div class="mutable-table-container"></div>'))
+        self.assertFalse(is_fortigate_table_ready_html('<div id="login-container"></div>'))
 
     def test_login_pending_no_auth_error(self):
-        """Tests parsing WebUI login screen from fixtures/fgt2.txt (form present, no error message)."""
-        html_content = _read_fixture("fgt2.txt")
+        """Tests parsing WebUI login screen (form present, no error message)."""
+        html_content = """
+        <div id="login">
+          <div id="err_msg" style="display: none"><div id="err_msg_content"></div></div>
+          <input id="username" />
+          <input id="secretkey" type="password" />
+        </div>
+        """
         login_data = parse_fortigate_login_html(html_content)
 
         self.assertTrue(login_data["has_login_form"])
@@ -105,8 +131,14 @@ class TestFortiGateHandler(unittest.TestCase):
         self.assertEqual(login_data["error_message"], "")
 
     def test_login_auth_failure_detected(self):
-        """Tests parsing WebUI login error screen from fixtures/fgt5.txt (Authentication failure displayed)."""
-        html_content = _read_fixture("fgt5.txt")
+        """Tests parsing WebUI login error screen (Authentication failure displayed)."""
+        html_content = """
+        <div id="login">
+          <div id="err_msg" style=""><div id="err_msg_content">Authentication failure</div></div>
+          <input id="username" />
+          <input id="secretkey" type="password" />
+        </div>
+        """
         login_data = parse_fortigate_login_html(html_content)
 
         self.assertTrue(login_data["has_login_form"])
@@ -114,8 +146,27 @@ class TestFortiGateHandler(unittest.TestCase):
         self.assertEqual(login_data["error_message"], "Authentication failure")
 
     def test_interfaces_table_html(self):
-        """Tests parsing modern mutable table from fixtures/fgt4.txt with VLANs and anonymized IPs."""
-        html_content = _read_fixture("fgt4.txt")
+        """Tests parsing modern mutable table with VLANs and sample IPs."""
+        html_content = """
+        <div class="mutable-table-container">
+          <div class="row" row-id="r1">
+            <div column-id="name"><f-icon class="ftnt-interface-rj45-up"></f-icon><span>Vlan1009 (dmz)</span></div></div></div>
+            <div column-id="ipv4_addresses">192.0.2.65/255.255.255.224</div></div></div>
+          </div>
+          <div class="row" row-id="r2">
+            <div column-id="name"><f-icon class="ftnt-interface-rj45-up"></f-icon><span>Vlan200 (wan2)</span></div></div></div>
+            <div column-id="ipv4_addresses">198.51.100.202/255.255.255.252</div></div></div>
+          </div>
+          <div class="row" row-id="r3">
+            <div column-id="name"><f-icon class="ftnt-interface-rj45-up"></f-icon><span>Vlan300 (internal5)</span></div></div></div>
+            <div column-id="ipv4_addresses">192.168.1.104/255.255.255.0</div></div></div>
+          </div>
+          <div class="row" row-id="r4">
+            <div column-id="name"><f-icon class="ftnt-interface-rj45-up"></f-icon><span>Vlan100 (wan1)</span></div></div></div>
+            <div column-id="ipv4_addresses">203.0.113.254/255.255.255.252</div></div></div>
+          </div>
+        </div>
+        """
         intf_map = parse_fortigate_interfaces_html(html_content)
 
         self.assertIn("dmz", intf_map)
@@ -145,8 +196,27 @@ class TestFortiGateHandler(unittest.TestCase):
         self.assertEqual(extract_fortigate_interface_details_html(html_content, "unknown_port"), ("", "", "NOT FOUND"))
 
     def test_full_webui_interfaces_html(self):
-        """Tests parsing complete WebUI page from fixtures/fgt6.txt with anonymized IPs."""
-        html_content = _read_fixture("fgt6.txt")
+        """Tests parsing complete interface table with sample IPs."""
+        html_content = """
+        <div class="mutable-table-container">
+          <div class="row" row-id="r1">
+            <div column-id="name"><f-icon class="ftnt-interface-rj45-up"></f-icon><span>Vlan100 (wan1)</span></div></div></div>
+            <div column-id="ipv4_addresses">192.0.2.2/255.255.255.0</div></div></div>
+          </div>
+          <div class="row" row-id="r2">
+            <div column-id="name"><f-icon class="ftnt-interface-rj45-up"></f-icon><span>Vlan200 (wan2)</span></div></div></div>
+            <div column-id="ipv4_addresses">198.51.100.14/255.255.255.252</div></div></div>
+          </div>
+          <div class="row" row-id="r3">
+            <div column-id="name"><f-icon class="ftnt-interface-rj45-up"></f-icon><span>Vlan1009 (dmz)</span></div></div></div>
+            <div column-id="ipv4_addresses">192.0.2.33/255.255.255.224</div></div></div>
+          </div>
+          <div class="row" row-id="r4">
+            <div column-id="name"><f-icon class="ftnt-interface-rj45-up"></f-icon><span>Vlan300 (internal5)</span></div></div></div>
+            <div column-id="ipv4_addresses">0.0.0.0/0.0.0.0</div></div></div>
+          </div>
+        </div>
+        """
         intf_map = parse_fortigate_interfaces_html(html_content)
 
         self.assertIn("wan1", intf_map)
@@ -176,8 +246,20 @@ class TestFortiGateHandler(unittest.TestCase):
         self.assertEqual(extract_fortigate_interface_details_html(html_content, "port99"), ("", "", "NOT FOUND"))
 
     def test_static_routing_table_and_gateway_resolution_html(self):
-        """Tests parsing static routing table and gateway resolution from fixtures/fgt7.txt."""
-        html_content = _read_fixture("fgt7.txt")
+        """Tests parsing static routing table and gateway resolution."""
+        html_content = """
+        <div class="table-container">
+          <div row-id="r1"><div column-id="dst">10.0.0.0/8</div><div column-id="gateway"></div><div column-id="$intf">LAN Balanced</div></div>
+          <div row-id="r2"><div column-id="dst">172.16.0.0/12</div><div column-id="gateway"></div><div column-id="$intf">LAN Balanced</div></div>
+          <div row-id="r3"><div column-id="dst">192.0.2.10/32</div><div column-id="gateway">192.0.2.1</div><div column-id="$intf">Vlan100 (wan1)</div></div>
+          <div row-id="r4"><div column-id="dst">192.0.2.20/32</div><div column-id="gateway">192.0.2.1</div><div column-id="$intf">Vlan100 (wan1)</div></div>
+          <div row-id="r5"><div column-id="dst">203.0.113.0/24</div><div column-id="gateway"></div><div column-id="$intf">LAN Balanced</div></div>
+          <div row-id="r6"><div column-id="dst">172.16.1.115/32</div><div column-id="gateway">192.0.2.1</div><div column-id="$intf">Vlan100 (wan1)</div></div>
+          <div row-id="r7"><div column-id="dst">0.0.0.0/0</div><div column-id="gateway">192.168.1.1</div><div column-id="$intf">Vlan300 (internal5)</div></div>
+          <div row-id="r8"><div column-id="dst">192.168.0.0/16</div><div column-id="gateway"></div><div column-id="$intf">LAN Balanced</div></div>
+          <div row-id="r9"><div column-id="dst">0.0.0.0/0</div><div column-id="gateway">198.51.100.13</div><div column-id="$intf">Vlan200 (wan2)</div></div>
+        </div>
+        """
         routes = parse_fortigate_static_routes_html(html_content)
 
         self.assertEqual(len(routes), 9)

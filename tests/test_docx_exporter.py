@@ -43,19 +43,26 @@ class TestDocxExporter(unittest.TestCase):
     @patch("exporters.docx_exporter.os.path.exists", return_value=True)
     @patch("exporters.docx_exporter.DocxTemplate")
     def test_export_includes_sources_list_and_merged_fields(self, mock_template_cls, mock_exists):
-        """Verifies that export builds context with sources list and merged discovery attributes, and no singular source."""
+        """Verifies that export builds context with pure 4-subsystem contract and zero legacy keys."""
         mock_doc = MagicMock()
         mock_template_cls.return_value = mock_doc
 
         results = [
             {
-                "host": "SW-CORE-01",
-                "rule_name": "Core Switches",
-                "handler": "generic_ping",
-                "sources": ["nagios_pdf", "airwave"],
-                "nagios_pdf": {"status": "CRITICAL", "service": "PING"},
-                "airwave": {"ip": "10.0.0.1", "device_id": "538"},
-                "latencies": [12],
+                "host": {"name": "SW-CORE-01"},
+                "rules": ["Core Switches"],
+                "handlers": {
+                    "list": ["generic_ping"],
+                    "generic_ping": {
+                        "latency": 12,
+                        "error": 0,
+                    },
+                },
+                "sources": {
+                    "list": ["nagios_pdf", "airwave"],
+                    "nagios_pdf": {"status": "CRITICAL", "service": "PING"},
+                    "airwave": {"ip": "10.0.0.1", "device_id": "538"},
+                },
             }
         ]
         config = {
@@ -70,16 +77,14 @@ class TestDocxExporter(unittest.TestCase):
         self.assertIn("results", rendered_context)
         item = rendered_context["results"][0]
 
-        # Verify sources is a flat list
-        self.assertEqual(item["sources"], ["nagios_pdf", "airwave"])
-        # Verify singular 'source' is deliberately not present
-        self.assertNotIn("source", item)
-        # Verify namespaced source dictionaries (res.<SOURCE>)
-        self.assertEqual(item["nagios_pdf"], {"status": "CRITICAL", "service": "PING"})
-        self.assertEqual(item["airwave"], {"ip": "10.0.0.1", "device_id": "538"})
-        # Verify root namespace is clean with zero attribute pollution
-        self.assertNotIn("status", item)
-        self.assertNotIn("service", item)
+        # Verify pure 4 domains
+        self.assertEqual(item["host"]["name"], "SW-CORE-01")
+        self.assertEqual(item["rules"], ["Core Switches"])
+        self.assertEqual(item["handlers"]["list"], ["generic_ping"])
+        self.assertEqual(item["handlers"]["generic_ping"]["latency"], 12)
+        self.assertEqual(item["sources"]["list"], ["nagios_pdf", "airwave"])
+        self.assertEqual(item["sources"]["nagios_pdf"], {"status": "CRITICAL", "service": "PING"})
+        self.assertEqual(item["sources"]["airwave"], {"ip": "10.0.0.1", "device_id": "538"})
 
     @patch("exporters.docx_exporter.os.path.exists", return_value=True)
     @patch("exporters.docx_exporter.DocxTemplate")
@@ -88,7 +93,7 @@ class TestDocxExporter(unittest.TestCase):
         mock_doc = MagicMock()
         mock_template_cls.return_value = mock_doc
 
-        results = [{"host": "SW-ACCESS-01"}]
+        results = [{"host": {"name": "SW-ACCESS-01"}}]
         config = {
             "output_file": "report.docx",
             "languages": ["en"],
@@ -97,8 +102,48 @@ class TestDocxExporter(unittest.TestCase):
 
         rendered_context = mock_doc.render.call_args[0][0]
         item = rendered_context["results"][0]
-        self.assertEqual(item["sources"], [])
-        self.assertNotIn("source", item)
+        self.assertEqual(item["sources"]["list"], [])
+
+    @patch("exporters.docx_exporter.Inches", side_effect=lambda x: x)
+    @patch("exporters.docx_exporter.InlineImage", return_value="<InlineImageObject>")
+    @patch("exporters.docx_exporter.os.path.exists")
+    @patch("exporters.docx_exporter.DocxTemplate")
+    def test_export_handler_screenshot_injection(self, mock_template_cls, mock_exists, mock_inline_image, mock_inches):
+        """Verifies that screenshot image is attached to handlers.<HANDLER>.screenshot.image."""
+        mock_doc = MagicMock()
+        mock_template_cls.return_value = mock_doc
+        mock_exists.side_effect = lambda path: True
+
+        results = [
+            {
+                "host": {"name": "RT-01"},
+                "rules": ["Check Router"],
+                "handlers": {
+                    "list": ["airwave"],
+                    "airwave": {
+                        "error": 0,
+                        "screenshot": {
+                            "path": "/fake/screenshot.png",
+                            "filename": "screenshot.png",
+                            "captured": True,
+                        },
+                    },
+                },
+                "sources": {"list": []},
+            }
+        ]
+        config = {
+            "output_file": "report.docx",
+            "languages": ["en"],
+        }
+        docx_exporter.export(results, config)
+
+        rendered_context = mock_doc.render.call_args[0][0]
+        item = rendered_context["results"][0]
+        screenshot_obj = item["handlers"]["airwave"]["screenshot"]
+        self.assertTrue(screenshot_obj["captured"])
+        self.assertEqual(screenshot_obj["filename"], "screenshot.png")
+        self.assertEqual(screenshot_obj["image"], "<InlineImageObject>")
 
 
 if __name__ == "__main__":

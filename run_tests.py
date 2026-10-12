@@ -9,8 +9,20 @@ Usage:
     python3 run_tests.py -q       # Minimal output (only errors/failures)
     python3 run_tests.py -v       # Run with test method names displayed
 """
+import os
 import sys
 import unittest
+
+# Ensure local .venv site-packages is available if present
+venv_site_packages = os.path.join(
+    os.path.dirname(__file__),
+    ".venv",
+    "lib",
+    f"python{sys.version_info.major}.{sys.version_info.minor}",
+    "site-packages",
+)
+if os.path.isdir(venv_site_packages) and venv_site_packages not in sys.path:
+    sys.path.insert(0, venv_site_packages)
 
 
 def main():
@@ -22,7 +34,7 @@ def main():
         verbosity = 1
 
     loader = unittest.TestLoader()
-    suite = loader.discover("tests", pattern="test_*.py")
+    suite = loader.discover("tests", pattern="test_*.py", top_level_dir=".")
     runner = unittest.TextTestRunner(verbosity=verbosity, buffer=True)
     result = runner.run(suite)
 

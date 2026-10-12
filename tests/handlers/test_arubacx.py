@@ -1,9 +1,10 @@
 import unittest
+from unittest.mock import patch
 import handlers.arubacx as arubacx_mod
 
 class TestArubaCXHandler(unittest.TestCase):
     def test_aoscx_system_parsing(self):
-        """Validates standalone ArubaOS-CX parser with anonymized output."""
+        """Validates standalone ArubaOS-CX parser with mock output."""
         cx_output = """SW-CORE-01# show system
 Hostname               : SW-CORE-01
 System Description     : FL.10.16.1020
@@ -49,10 +50,19 @@ Chassis Serial Nbr     : SG0000000001
         self.assertIn("system_info", res)
         self.assertEqual(res["system_info"]["version"], "FL.10.16.1020")
         self.assertEqual(res["system_info"]["os_type"], "AOS-CX")
+        self.assertEqual(res["error"], 0)
 
     def test_aoscx_handle_callable(self):
         """Confirms arubacx module exposes a callable handle function."""
         self.assertTrue(callable(arubacx_mod.handle))
+
+    @patch("handlers.arubacx.run_ssh_command", side_effect=Exception("Connection timed out"))
+    def test_aoscx_timeout_classification(self, mock_ssh):
+        """Verifies that SSH timeout maps to ERR_CONNECTION_TIMEOUT."""
+        from utils.error_codes import ERR_CONNECTION_TIMEOUT
+        res = arubacx_mod.handle("SW-CORE-01", {}, {"username": "admin", "password": "x"})
+        self.assertEqual(res["error"], ERR_CONNECTION_TIMEOUT)
+
 
 if __name__ == "__main__":
     unittest.main(buffer=True)

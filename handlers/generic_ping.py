@@ -1,4 +1,5 @@
 from utils.network import ping_with_output
+from utils.error_codes import ERR_OK, ERR_PING_TIMEOUT
 import socket
 import os
 from datetime import datetime
@@ -10,9 +11,8 @@ def execute_generic_ping(host, alert, options, handler_name="generic_ping"):
     """
     result = {
         "host": host,
-        "wan_status": {},
-        "latencies": [],
-        "screenshot_path": None
+        "latency": [],
+        "error": ERR_OK,
     }
     
     print(f"[{host}] Executing ping for {handler_name}...")
@@ -28,11 +28,12 @@ def execute_generic_ping(host, alert, options, handler_name="generic_ping"):
     if latency:
         try:
             latency_val = int(latency)
-            result["latencies"].append(latency_val)
+            result["latency"].append(latency_val)
             print(f"[{host}] Ping successful ({latency}ms)")
         except ValueError:
             pass
     else:
+        result["error"] = ERR_PING_TIMEOUT
         print(f"[{host}] Ping timeout or unreachable.")
         
     if options.get("capture_screenshot", True):
@@ -85,7 +86,12 @@ def execute_generic_ping(host, alert, options, handler_name="generic_ping"):
             img = ImageGrab.grabclipboard()
             if img is not None:
                 img.save(screenshot_path)
-                result["screenshot_path"] = screenshot_path
+                result["screenshot"] = {
+                    "image": None,
+                    "path": screenshot_path,
+                    "filename": screenshot_filename,
+                    "captured": True,
+                }
                 print(f"[{host}] Native screenshot saved at {screenshot_path}")
             else:
                 print(f"[{host}] Failed to grab native screenshot from clipboard. Make sure your computer is unlocked.")
