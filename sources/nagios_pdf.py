@@ -1,7 +1,7 @@
 import os
 import sys
+import crossfiledialog
 from utils.pdf_parser import parse_nagios_pdf
-from utils.dialog import open_file_dialog
 from utils.airwave import filter_device_name
 from utils.exit_codes import ERR_PDF_FILE_NOT_SELECTED, ERR_PDF_PARSE_ERROR
 
@@ -13,10 +13,14 @@ def get_pdf_file_path(default_path):
     print(f"Warning: PDF file '{os.path.basename(default_path)}' not found.")
     print("Please select the PDF file from the file explorer dialog...")
 
-    file_path = open_file_dialog(
-        title="Select Nagios Report PDF",
-        file_filter="PDF files (*.pdf)\0*.pdf\0All files (*.*)\0*.*\0\0",
-    )
+    file_path = None
+    try:
+        file_path = crossfiledialog.open_file(
+            title="Select Nagios Report PDF",
+            filter={"PDF files": "*.pdf", "All files": "*.*"},
+        )
+    except Exception:
+        file_path = None
 
     if not file_path:
         print("No file selected. Exiting.")

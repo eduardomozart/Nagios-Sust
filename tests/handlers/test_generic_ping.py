@@ -76,5 +76,48 @@ class TestGenericPingHandler(unittest.TestCase):
         cmd_called = mock_subprocess.call_args[0][0]
         self.assertIn("3", cmd_called)
 
+    @patch("handlers.generic_ping.ping_with_output")
+    @patch("handlers.generic_ping.socket.gethostbyname")
+    def test_single_ping_execution_with_screenshot(self, mock_gethostbyname, mock_ping_with_output):
+        """Verifies ping_with_output is executed exactly once even when capture_screenshot is True."""
+        mock_gethostbyname.return_value = "192.0.2.1"
+        mock_ping_with_output.return_value = ("15", "Reply from 192.0.2.1: bytes=32 time=15ms TTL=64")
+
+        res = generic_ping_mod.execute_generic_ping("test-host", "", {"capture_screenshot": True})
+        self.assertEqual(mock_ping_with_output.call_count, 1)
+        self.assertEqual(res["latency"], 15)
+
+    @patch("handlers.generic_ping.platform.system", return_value="Windows")
+    @patch("handlers.generic_ping.ctypes")
+    @patch("handlers.generic_ping.ImageGrab")
+    @patch("subprocess.Popen")
+    @patch("handlers.generic_ping.ping_with_output")
+    @patch("handlers.generic_ping.socket.gethostbyname")
+    def test_windows_screenshot_renders_output_without_second_ping(
+        self, mock_gethostbyname, mock_ping_with_output, mock_popen, mock_imagegrab, mock_ctypes, mock_platform
+    ):
+        """Verifies Windows screenshot launches a batch script rendering raw_output rather than running ping twice."""
+        mock_gethostbyname.return_value = "192.0.2.1"
+        mock_ping_with_output.return_value = ("20", "Pinging 192.0.2.1...\nReply from 192.0.2.1: bytes=32 time=20ms")
+        mock_ctypes.windll.user32.OpenClipboard.return_value = 1
+        mock_imagegrab.grabclipboard.return_value = None  # Mock clipboard image capture
+
+        mock_proc = unittest.mock.MagicMock()
+        mock_proc.pid = 9999
+        mock_proc.communicate.return_value = ("", "")
+        mock_proc.poll.return_value = 0
+        mock_popen.return_value = mock_proc
+
+        res = generic_ping_mod.execute_generic_ping("win-host", "", {"capture_screenshot": True})
+
+        # Ping must be executed exactly once
+        self.assertEqual(mock_ping_with_output.call_count, 1)
+        self.assertEqual(res["latency"], 20)
+        # First Popen call must launch batch script, not ping command directly
+        self.assertTrue(mock_popen.called)
+        cmd_arg = mock_popen.call_args_list[0][0][0]
+        self.assertIn(".bat", cmd_arg)
+        self.assertNotIn("ping -n", cmd_arg)
+
 if __name__ == "__main__":
     unittest.main(buffer=True)

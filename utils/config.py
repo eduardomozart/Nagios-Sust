@@ -6,6 +6,7 @@ try:
 except ImportError:
     yaml = None
 import importlib
+import crossfiledialog
 from utils.exit_codes import (
     ERR_CONFIG_FILE_NOT_FOUND,
     ERR_PROMPTED_CONFIG_NOT_FOUND,
@@ -236,10 +237,9 @@ def prompt_for_config_file(base_dir=None):
         selected = user_input
     else:
         try:
-            from utils.dialog import open_file_dialog
-            selected = open_file_dialog(
+            selected = crossfiledialog.open_file(
                 title="Select Configuration YAML File",
-                file_filter="YAML files (*.yaml;*.yml)\0*.yaml;*.yml\0All files (*.*)\0*.*\0\0"
+                filter={"YAML files": ["*.yaml", "*.yml"], "All files": "*.*"},
             )
         except Exception:
             selected = None

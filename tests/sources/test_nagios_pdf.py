@@ -54,7 +54,7 @@ class TestNagiosPdfSource(unittest.TestCase):
         self.assertEqual(len(hosts_core), 1)
         self.assertEqual(hosts_core[0]["host"], "SW-CORE-01")
 
-    @patch("sources.nagios_pdf.open_file_dialog", return_value=None)
+    @patch("sources.nagios_pdf.crossfiledialog.open_file", return_value=None)
     @patch("os.path.exists", return_value=False)
     @patch("sys.exit")
     def test_nagios_pdf_no_file_selected_exits(self, mock_exit, mock_exists, mock_dialog):
