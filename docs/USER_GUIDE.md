@@ -58,6 +58,9 @@ The `options` block inside a rule passes configuration to the handler script.
 **Global Options (Applies to all handlers):**
 - `capture_screenshot` (boolean): Set to `false` to prevent the handler from generating and saving screenshots. Defaults to `true`.
 
+**Specific Options (Generic Ping Handler):**
+- `count` (int): Number of echo request packets to send. Default: `4`.
+
 **Specific Options (FortiGate Handler):**
 - `url_template` (string): Overrides the default FortiGate interface URL. Default: `https://{host}/ng/interface`
 - `gather_system_info` (boolean): Scrapes the System Information widget on `/ng/dashboard` to retrieve Serial Number, Firmware (e.g. `v7.4.11`), and Uptime. Default: `true`.
@@ -66,7 +69,8 @@ The `options` block inside a rule passes configuration to the handler script.
 - `ping` (dictionary): Unified configuration block for ping execution overrides. You can specify a `"default"` block for global rules and interface names for specific rules. By default, ping is **disabled** for all interfaces. If enabled, it targets the local `"interface"` and uses the `"host"` execution source. 
   - `enabled` (boolean): Whether to execute ping for this interface. Default: `false`.
   - `target` (string): Set to `"gateway"` to ping the routing table gateway (implicitly enables `gather_gateway`), `"interface"` for local IP, `"ipsec_endpoint"` to auto-detect and ping an IPsec tunnel bound to this interface, or a custom IP like `"8.8.8.8"`. Default: `"interface"`.
-  - `source` (string): Defines where the ping originates from. Set to `"host"` to ping locally from the machine running the script. Set to `"interface"` to run `execute ping` natively in the FortiOS CLI bound to the physical interface. Set to `"ipsec_endpoint"` to bind the FortiOS CLI ping to the logical IPsec tunnel interface. Default: `"host"`.
+  - `source` (string): Defines where the ping originates from. Set to `"host"` to ping locally from the machine running the script (delegates to `execute_generic_ping` without screenshots). Set to `"interface"` to run `execute ping` natively in the FortiOS CLI bound to the physical interface. Set to `"ipsec_endpoint"` to bind the FortiOS CLI ping to the logical IPsec tunnel interface. Default: `"host"`.
+  - `count` (int): Number of echo request packets to send for the interface. Default: `1`.
 - `username` (string): Overrides the global credentials with a rule-specific username.
 - `password` (string): Overrides the global credentials with a rule-specific password.
 
@@ -253,6 +257,7 @@ Nagios-Sust structures all collected evidence into 4 distinct architectural doma
        - `{{ intf_data.mask }}`: CIDR subnet mask
        - `{{ intf_data.gw }}`: Gateway IP address
        - `{{ intf_data.latency }}`: Interface ping latency in ms (`>= 0` on success, `None` on failure/timeout; key is only present if `ping_interface` is enabled).
+       - `{{ intf_data.ping_count }}`: Number of ping packets sent for this interface (key is only present if `ping_interface` is enabled).
      - `{{ res.handlers.<HANDLER>.screenshot }}`: Visual screenshot metadata (only present if captured):
        - `{{ res.handlers.<HANDLER>.screenshot.image }}`: Word-injected image object (`docxtpl.InlineImage`)
        - `{{ res.handlers.<HANDLER>.screenshot.path }}`: Absolute file path to the saved screenshot

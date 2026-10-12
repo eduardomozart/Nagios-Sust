@@ -15,8 +15,8 @@ airwave:
   url: "https://airwave" # AirWave server URL or Hostname / IP (e.g. "https://10.0.0.5")
   # Filter devices during AirWave enumeration:
   host_filter:
-    startswith: "SW" # Filter by name prefix (e.g. "SW")
-    # regex: "^(SW|AP)" # Or use regex for multiple conditions (e.g. "^(SW-CORE|SW-ACCESS)")
+    # startswith: "SW" # Filter by name prefix (e.g. "SW")
+    regex: "^(ST|AP)" # Or use regex for multiple conditions (e.g. "^(SW-CORE|SW-ACCESS)")
   device_categories: [] # Filter by category (e.g. ["switch", "thin_ap", "controller"])
   models: [] # Optional filter by model (e.g. ["6300M", "5406R"])
 
@@ -53,7 +53,8 @@ rules:
   # 2. Aruba AirWave WebUI Monitoring
   - name: "AirWave Device Monitoring"
     host_filter:
-      startswith: "SW" # Matches SW-CORE-01, SW-ACCESS-01, AP-01, etc.
+      # startswith: "ST" # Matches ST-CORE-01, ST-ACCESS-01, etc.
+      regex: "^(ST|AP)" # Matches ST-CORE-01, ST-ACCESS-01, AP-01, etc.
     handler: "airwave" # Connects via pyairwave API and captures WebUI Device Info tab
     options:
       # airwave_url: "https://airwave" # Optional override (defaults to global airwave.url)
@@ -62,7 +63,7 @@ rules:
   # 3. Aruba Switches (Auto-detects AOS-CX vs AOS-S / ProCurve via SSH)
   - name: "Aruba Switch System Info"
     host_filter:
-      startswith: "SW" # Matches SW-CORE-01, SW-ACCESS-01, etc.
+      startswith: "ST" # Matches ST-CORE-01, ST-ACCESS-01, etc.
     handler: "aruba" # Connects via SSH, auto-detects AOS-CX vs AOS-S, and parses system info
     options:
       port: 22
@@ -72,7 +73,7 @@ rules:
   # Because rules execute in order, switches matching both 'SW' rules will collect system info AND ping evidence!
   - name: "Switch Ping Check"
     host_filter:
-      regex: "^(SW|AP)" # Matches SW-CORE-01, SW-ACCESS-01, AP-01, etc.
+      regex: "^(ST|AP)" # Matches ST-CORE-01, ST-ACCESS-01, AP-01, etc.
     handler: "generic_ping"
     options:
       capture_screenshot: true

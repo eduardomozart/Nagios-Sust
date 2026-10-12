@@ -51,5 +51,30 @@ class TestGenericPingHandler(unittest.TestCase):
         self.assertEqual(res["latency"], 25)
         self.assertEqual(res["error"], 0)
 
+    @patch("handlers.generic_ping.ping_with_output")
+    @patch("handlers.generic_ping.socket.gethostbyname")
+    def test_execute_generic_ping_custom_count(self, mock_gethostbyname, mock_ping_with_output):
+        """Verifies execute_generic_ping respects count parameter and options['count']."""
+        mock_gethostbyname.return_value = "192.0.2.1"
+        mock_ping_with_output.return_value = ("10", "Reply")
+
+        # Via direct argument
+        generic_ping_mod.execute_generic_ping("test-host", "", {"capture_screenshot": False}, count=2)
+        mock_ping_with_output.assert_called_with("192.0.2.1", count=2)
+
+        # Via options["count"]
+        generic_ping_mod.execute_generic_ping("test-host", "", {"capture_screenshot": False, "count": 5})
+        mock_ping_with_output.assert_called_with("192.0.2.1", count=5)
+
+    @patch("subprocess.check_output")
+    def test_ping_with_output_subprocess_invocation(self, mock_subprocess):
+        """Verifies ping_with_output executes platform ping with specified count."""
+        mock_subprocess.return_value = "Reply from 192.0.2.1: time=12ms"
+        lat, out = generic_ping_mod.ping_with_output("192.0.2.1", count=3)
+        self.assertEqual(lat, "12")
+        self.assertTrue(mock_subprocess.called)
+        cmd_called = mock_subprocess.call_args[0][0]
+        self.assertIn("3", cmd_called)
+
 if __name__ == "__main__":
     unittest.main(buffer=True)

@@ -1,21 +1,57 @@
-from utils.network import ping_with_output
 from utils.error_codes import ERR_OK, ERR_PING_TIMEOUT
 import socket
+import subprocess
+import re
+import platform
 import os
 from datetime import datetime
 
-def execute_generic_ping(host, alert, options, handler_name="generic_ping"):
+def ping_with_output(ip_address, count=4, timeout_ms=1000):
     """
-    Generic execution logic that resolves the host IP, pings it 4 times,
+    Pings an IP address and returns a tuple (latency_str, raw_output_str).
+    """
+    if not ip_address or ip_address == "0.0.0.0":
+        return "", "Invalid IP address or host unreachable."
+        
+    try:
+        count_str = str(max(1, int(count)))
+        if platform.system().lower() == 'windows':
+            cmd = ['ping', '-n', count_str, '-w', str(timeout_ms), ip_address]
+        else:
+            timeout_sec = str(max(1, int(timeout_ms // 1000)))
+            cmd = ['ping', '-c', count_str, '-W', timeout_sec, ip_address]
+        
+        output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, universal_newlines=True)
+        match = re.search(r'[=<]\s*([0-9]+(?:\.[0-9]+)?)\s*ms', output, re.IGNORECASE)
+        latency = str(int(float(match.group(1)))) if match else ""
+        return latency, output
+                
+    except subprocess.CalledProcessError as e:
+        return "", getattr(e, "output", str(e))
+    except Exception as e:
+        return "", str(e)
+
+def execute_generic_ping(host, alert="", options=None, handler_name="generic_ping", count=None):
+    """
+    Generic execution logic that resolves the host IP, pings it with configurable count,
     records latency, and generates a native screenshot if enabled.
     """
+    if options is None:
+        options = {}
+
+    ping_count = count if count is not None else options.get("count", 4)
+    try:
+        ping_count = max(1, int(ping_count))
+    except (ValueError, TypeError):
+        ping_count = 4
+
     result = {
         "host": host,
         "latency": None,
         "error": ERR_PING_TIMEOUT,
     }
     
-    print(f"[{host}] Executing ping for {handler_name}...")
+    print(f"[{host}] Executing ping for {handler_name} (count={ping_count})...")
     
     # Try to resolve hostname to IP, otherwise use it directly
     try:
@@ -23,7 +59,7 @@ def execute_generic_ping(host, alert, options, handler_name="generic_ping"):
     except socket.gaierror:
         ip_address = host
         
-    latency, raw_output = ping_with_output(ip_address)
+    latency, raw_output = ping_with_output(ip_address, count=ping_count)
     
     if latency:
         try:
@@ -62,8 +98,8 @@ def execute_generic_ping(host, alert, options, handler_name="generic_ping"):
             ctypes.windll.user32.EmptyClipboard()
             ctypes.windll.user32.CloseClipboard()
             
-            # Launch CMD window and keep it open (ping takes ~3 seconds)
-            cmd_str = f'cmd.exe /c "title Nagios-Ping-{host} & ping -n 4 {ip_address} & timeout /t 2"'
+            # Launch CMD window and keep it open
+            cmd_str = f'cmd.exe /c "title Nagios-Ping-{host} & ping -n {ping_count} {ip_address} & timeout /t 2"'
             proc = subprocess.Popen(cmd_str, creationflags=subprocess.CREATE_NEW_CONSOLE)
             
             # Wait for the ping to run and finish visually in the window

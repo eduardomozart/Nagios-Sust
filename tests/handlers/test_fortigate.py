@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from handlers.fortigate import (
     extract_fortigate_interface_details_html,
@@ -313,26 +314,54 @@ class TestFortiGateHandler(unittest.TestCase):
 
     def test_interface_latency_contract(self):
         """Verifies interface latency returns int >= 0 on success, None on failure, and omitted when ping disabled."""
-        # 1. Ping disabled -> key omitted
+        # 1. Ping disabled -> latency and ping_count omitted
         wants_ping_false = False
         intf_status_disabled = {"status": "UP", "ip": "10.0.0.1", "ping_interface": wants_ping_false}
         if wants_ping_false:
             intf_status_disabled["latency"] = None
+            intf_status_disabled["ping_count"] = 1
         self.assertNotIn("latency", intf_status_disabled)
+        self.assertNotIn("ping_count", intf_status_disabled)
 
-        # 2. Ping enabled & success -> int >= 0
+        # 2. Ping enabled & success -> int >= 0 and ping_count present
         wants_ping_true = True
         latency_str = "22"
         intf_status_success = {"status": "UP", "ip": "10.0.0.1", "ping_interface": wants_ping_true}
         if wants_ping_true:
+            intf_status_success["ping_count"] = 2
             intf_status_success["latency"] = max(0, int(latency_str))
         self.assertEqual(intf_status_success["latency"], 22)
+        self.assertEqual(intf_status_success["ping_count"], 2)
 
-        # 3. Ping enabled & failed / timeout -> None
+        # 3. Ping enabled & failed / timeout -> None and ping_count present
         intf_status_failed = {"status": "UP", "ip": "10.0.0.1", "ping_interface": wants_ping_true}
         if wants_ping_true:
+            intf_status_failed["ping_count"] = 1
             intf_status_failed["latency"] = None
         self.assertIsNone(intf_status_failed["latency"])
+        self.assertEqual(intf_status_failed["ping_count"], 1)
+
+    @patch("handlers.fortigate.execute_generic_ping")
+    def test_fortigate_source_host_delegation(self, mock_execute_ping):
+        """Verifies fortigate source: host delegates to execute_generic_ping without screenshots."""
+        mock_execute_ping.return_value = {"host": "200.1.2.1", "latency": 15, "error": 0}
+        target_ip = "200.1.2.1"
+        intf_ping_count = 3
+        ping_res = mock_execute_ping(
+            target_ip,
+            alert="",
+            options={"capture_screenshot": False, "count": intf_ping_count},
+            handler_name="fortigate_wan1",
+            count=intf_ping_count
+        )
+        self.assertEqual(ping_res["latency"], 15)
+        mock_execute_ping.assert_called_with(
+            target_ip,
+            alert="",
+            options={"capture_screenshot": False, "count": 3},
+            handler_name="fortigate_wan1",
+            count=3
+        )
 
     def test_fortigate_error_code_determination_without_root_latency(self):
         """Verifies fortigate error evaluation sets error code and does not populate root latency."""

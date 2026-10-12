@@ -12,7 +12,8 @@ from datetime import datetime
 import time
 import os
 import re
-from utils.network import ip_netmask_to_cidr, ping_host
+from utils.network import ip_netmask_to_cidr
+from handlers.generic_ping import execute_generic_ping
 from utils.error_codes import (
     ERR_OK,
     ERR_IF_DOWN,
@@ -497,6 +498,7 @@ def _extract_if_status(driver, host, options):
     default_ping_enabled = ping_defaults.get("enabled", False)
     default_ping_target = ping_defaults.get("target", "interface")
     default_ping_source = ping_defaults.get("source", "host")
+    default_ping_count = ping_defaults.get("count", 1)
 
     # Decide if we need to fetch static routes or ipsec bindings
     fetch_routes = gather_gateway or str(default_ping_target).lower() == "gateway"
@@ -592,6 +594,7 @@ def _extract_if_status(driver, host, options):
         wants_ping = default_ping_enabled
         intf_ping_target = default_ping_target
         intf_ping_source = default_ping_source
+        intf_ping_count = default_ping_count
         
         # Check for interface-specific overrides
         for k, v in ping_config.items():
@@ -605,6 +608,7 @@ def _extract_if_status(driver, host, options):
                     if "enabled" in v: wants_ping = v["enabled"]
                     if "target" in v: intf_ping_target = v["target"]
                     if "source" in v: intf_ping_source = v["source"]
+                    if "count" in v: intf_ping_count = v["count"]
                 elif isinstance(v, bool):
                     wants_ping = v
                 break
@@ -654,7 +658,14 @@ def _extract_if_status(driver, host, options):
             if target_ip:
                 source_val = str(intf_ping_source).lower()
                 if source_val == "host":
-                    latency = ping_host(target_ip)
+                    ping_res = execute_generic_ping(
+                        target_ip,
+                        alert="",
+                        options={"capture_screenshot": False, "count": intf_ping_count},
+                        handler_name=f"fortigate_{primary_intf}",
+                        count=intf_ping_count
+                    )
+                    latency = ping_res.get("latency")
                 else:
                     ping_intf_name = data["used_alias"]
                     if source_val == "ipsec_endpoint":
@@ -681,7 +692,8 @@ def _extract_if_status(driver, host, options):
             "ping_target_ip": target_ip if target_ip else ""
         }
         if wants_ping:
-            if latency:
+            intf_status_entry["ping_count"] = intf_ping_count
+            if latency is not None:
                 try:
                     intf_status_entry["latency"] = max(0, int(latency))
                 except (ValueError, TypeError):
