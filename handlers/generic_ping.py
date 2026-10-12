@@ -1,20 +1,12 @@
 from utils.error_codes import ERR_OK, ERR_PING_TIMEOUT
+from utils.window_capture import capture_window_screenshot
 import socket
 import subprocess
 import re
 import platform
 import os
 import time
-import tempfile
 from datetime import datetime
-try:
-    import ctypes
-except ImportError:
-    ctypes = None
-try:
-    from PIL import ImageGrab
-except ImportError:
-    ImageGrab = None
 
 def ping_with_output(ip_address, count=4, timeout_ms=1000):
     """
@@ -83,87 +75,37 @@ def execute_generic_ping(host, alert="", options=None, handler_name="generic_pin
         print(f"[{host}] Ping timeout or unreachable.")
         
     if options.get("capture_screenshot", True):
-        # --- Generate Native Windows Screenshot ---
-        if platform.system().lower() == "windows" and ctypes and hasattr(ctypes, "windll") and ImageGrab:
-            bat_path = None
-            txt_path = None
-            proc = None
-            try:
-                # Prepare screenshot directory
-                exec_timestamp = options.get("execution_timestamp", datetime.now().strftime("%Y%m%d_%H%M%S"))
-                base_dir = options.get("base_dir", os.getcwd())
-                screenshots_dir = os.path.join(base_dir, "screenshots", exec_timestamp, handler_name)
-                os.makedirs(screenshots_dir, exist_ok=True)
-                
-                capture_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                screenshot_filename = f"screenshot_{host}_{capture_timestamp}.png"
-                screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
-                
-                print(f"[{host}] Launching native CMD window for screenshot...")
-                
-                # Clear clipboard before taking new screenshot
-                ctypes.windll.user32.OpenClipboard(0)
-                ctypes.windll.user32.EmptyClipboard()
-                ctypes.windll.user32.CloseClipboard()
-                
-                # Write captured ping output to temporary batch script to display without re-pinging
-                with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt", encoding="utf-8") as tf:
-                    tf.write(raw_output or "")
-                    txt_path = tf.name
+        try:
+            exec_timestamp = options.get("execution_timestamp", datetime.now().strftime("%Y%m%d_%H%M%S"))
+            base_dir = options.get("base_dir", os.getcwd())
+            screenshots_dir = os.path.join(base_dir, "screenshots", exec_timestamp, handler_name)
+            os.makedirs(screenshots_dir, exist_ok=True)
+            
+            capture_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            screenshot_filename = f"screenshot_{host}_{capture_timestamp}.png"
+            screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
+            
+            window_title = f"Nagios-Ping-{host}"
+            if platform.system().lower() == "windows":
+                prompt_cmd = f"C:\\>ping -n {ping_count} {ip_address}"
+            else:
+                prompt_cmd = f"$ ping -c {ping_count} {ip_address}"
 
-                with tempfile.NamedTemporaryFile("w", delete=False, suffix=".bat", encoding="utf-8") as bf:
-                    bf.write(f"@echo off\ntitle Nagios-Ping-{host}\necho C:\\^>ping -n {ping_count} {ip_address}\necho.\ntype \"{txt_path}\"\ntimeout /t 2 >nul\n")
-                    bat_path = bf.name
-
-                cmd_str = f'cmd.exe /c "{bat_path}"'
-                proc = subprocess.Popen(cmd_str, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
-                
-                # Wait briefly for the window to render visually
-                time.sleep(1.0)
-                
-                # Synthesize Alt + PrintScreen to capture the active window (the CMD we just spawned)
-                VK_MENU = 0x12
-                VK_SNAPSHOT = 0x2C
-                KEYEVENTF_KEYUP = 0x0002
-                
-                ctypes.windll.user32.keybd_event(VK_MENU, 0, 0, 0)
-                ctypes.windll.user32.keybd_event(VK_SNAPSHOT, 0, 0, 0)
-                ctypes.windll.user32.keybd_event(VK_SNAPSHOT, 0, KEYEVENTF_KEYUP, 0)
-                ctypes.windll.user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
-                
-                # Give Windows a moment to populate the clipboard
-                time.sleep(0.5)
-                
-                # Grab image from clipboard
-                img = ImageGrab.grabclipboard()
-                if img is not None:
-                    img.save(screenshot_path)
-                    result["screenshot"] = {
-                        "image": None,
-                        "path": screenshot_path,
-                        "filename": screenshot_filename,
-                        "captured": True,
-                    }
-                    print(f"[{host}] Native screenshot saved at {screenshot_path}")
-                else:
-                    print(f"[{host}] Failed to grab native screenshot from clipboard. Make sure your computer is unlocked.")
-                    
-                # Terminate the CMD window if it didn't close itself
-                if proc and proc.pid:
-                    subprocess.run(f"taskkill /PID {proc.pid} /F /T", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception as e:
-                print(f"[{host}] Native screenshot generation skipped or not supported on this platform: {e}")
-            finally:
-                if txt_path and os.path.exists(txt_path):
-                    try:
-                        os.remove(txt_path)
-                    except Exception:
-                        pass
-                if bat_path and os.path.exists(bat_path):
-                    try:
-                        os.remove(bat_path)
-                    except Exception:
-                        pass
+            print(f"[{host}] Capturing terminal screenshot for {handler_name}...")
+            capture_window_screenshot(window_title, prompt_cmd, raw_output, screenshot_path)
+            
+            if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
+                result["screenshot"] = {
+                    "image": None,
+                    "path": screenshot_path,
+                    "filename": screenshot_filename,
+                    "captured": True,
+                }
+                print(f"[{host}] Screenshot saved at {screenshot_path}")
+            else:
+                print(f"[{host}] Screenshot generation failed or produced empty file.")
+        except Exception as e:
+            print(f"[{host}] Window screenshot generation skipped or not supported on this platform: {e}")
             
     return result
 

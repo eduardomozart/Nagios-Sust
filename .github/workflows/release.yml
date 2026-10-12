@@ -38,7 +38,7 @@ jobs:
 
     - name: Build executable
       run: |
-        pyinstaller --onedir --name Nagios-Sust-x64 --hidden-import utils.config --hidden-import crossfiledialog --hidden-import sources --hidden-import sources.nagios_pdf --hidden-import sources.airwave --hidden-import handlers.fortigate --hidden-import handlers.generic_ping --hidden-import handlers.aruba --hidden-import handlers.arubacx --hidden-import handlers.procurve --hidden-import handlers.airwave --hidden-import utils.airwave --hidden-import pyairwave --hidden-import pyairwave.awapi --hidden-import pyairwave.base --hidden-import paramiko --hidden-import exporters.docx_exporter main.py
+        pyinstaller --onedir --name Nagios-Sust-x64 --hidden-import utils.config --hidden-import crossfiledialog --hidden-import pywinctl --hidden-import mss --hidden-import sources --hidden-import sources.nagios_pdf --hidden-import sources.airwave --hidden-import handlers.fortigate --hidden-import handlers.generic_ping --hidden-import handlers.aruba --hidden-import handlers.arubacx --hidden-import handlers.procurve --hidden-import handlers.airwave --hidden-import utils.airwave --hidden-import pyairwave --hidden-import pyairwave.awapi --hidden-import pyairwave.base --hidden-import paramiko --hidden-import exporters.docx_exporter main.py
 
     - name: Prepare Release Package
       run: |

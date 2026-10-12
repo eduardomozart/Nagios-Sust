@@ -184,6 +184,8 @@ cython_debug/
 ~$*.docx
 ~$*.doc
 
+# Screenshots
+screenshots/
+
 # macOS
 .DS_Store
-

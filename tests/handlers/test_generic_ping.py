@@ -87,37 +87,50 @@ class TestGenericPingHandler(unittest.TestCase):
         self.assertEqual(mock_ping_with_output.call_count, 1)
         self.assertEqual(res["latency"], 15)
 
-    @patch("handlers.generic_ping.platform.system", return_value="Windows")
-    @patch("handlers.generic_ping.ctypes")
-    @patch("handlers.generic_ping.ImageGrab")
-    @patch("subprocess.Popen")
+    @patch("handlers.generic_ping.capture_window_screenshot")
     @patch("handlers.generic_ping.ping_with_output")
     @patch("handlers.generic_ping.socket.gethostbyname")
-    def test_windows_screenshot_renders_output_without_second_ping(
-        self, mock_gethostbyname, mock_ping_with_output, mock_popen, mock_imagegrab, mock_ctypes, mock_platform
+    def test_screenshot_invokes_capture_window_screenshot(
+        self, mock_gethostbyname, mock_ping_with_output, mock_capture_window_screenshot
     ):
-        """Verifies Windows screenshot launches a batch script rendering raw_output rather than running ping twice."""
+        """Verifies screenshot launches capture_window_screenshot rendering raw_output without running ping twice."""
         mock_gethostbyname.return_value = "192.0.2.1"
         mock_ping_with_output.return_value = ("20", "Pinging 192.0.2.1...\nReply from 192.0.2.1: bytes=32 time=20ms")
-        mock_ctypes.windll.user32.OpenClipboard.return_value = 1
-        mock_imagegrab.grabclipboard.return_value = None  # Mock clipboard image capture
 
-        mock_proc = unittest.mock.MagicMock()
-        mock_proc.pid = 9999
-        mock_proc.communicate.return_value = ("", "")
-        mock_proc.poll.return_value = 0
-        mock_popen.return_value = mock_proc
+        def fake_capture(title, cmd, raw, out_path):
+            with open(out_path, "wb") as f:
+                f.write(b"fake_png_data")
+            return out_path
+
+        mock_capture_window_screenshot.side_effect = fake_capture
 
         res = generic_ping_mod.execute_generic_ping("win-host", "", {"capture_screenshot": True})
 
         # Ping must be executed exactly once
         self.assertEqual(mock_ping_with_output.call_count, 1)
         self.assertEqual(res["latency"], 20)
-        # First Popen call must launch batch script, not ping command directly
-        self.assertTrue(mock_popen.called)
-        cmd_arg = mock_popen.call_args_list[0][0][0]
-        self.assertIn(".bat", cmd_arg)
-        self.assertNotIn("ping -n", cmd_arg)
+        self.assertTrue(mock_capture_window_screenshot.called)
+        call_args = mock_capture_window_screenshot.call_args[0]
+        self.assertIn("Nagios-Ping-win-host", call_args[0])
+        self.assertEqual(call_args[2], "Pinging 192.0.2.1...\nReply from 192.0.2.1: bytes=32 time=20ms")
+        self.assertIn("screenshot", res)
+        self.assertTrue(res["screenshot"]["captured"])
+
+    @patch("handlers.generic_ping.capture_window_screenshot", side_effect=RuntimeError("Display unavailable"))
+    @patch("handlers.generic_ping.ping_with_output")
+    @patch("handlers.generic_ping.socket.gethostbyname")
+    def test_screenshot_graceful_degradation(
+        self, mock_gethostbyname, mock_ping_with_output, mock_capture_window_screenshot
+    ):
+        """Verifies failure during screenshot capture does not fail ping result."""
+        mock_gethostbyname.return_value = "192.0.2.1"
+        mock_ping_with_output.return_value = ("20", "Reply from 192.0.2.1: bytes=32 time=20ms")
+
+        res = generic_ping_mod.execute_generic_ping("headless-host", "", {"capture_screenshot": True})
+
+        self.assertEqual(res["latency"], 20)
+        self.assertEqual(res["error"], 0)
+        self.assertNotIn("screenshot", res)
 
 if __name__ == "__main__":
     unittest.main(buffer=True)

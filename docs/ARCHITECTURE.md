@@ -61,6 +61,22 @@ Handlers return standardized integer error codes (`0` for `ERR_OK`, `1`..`8` for
 ### Decoupled Document Templating (`docxtpl`)
 Instead of hardcoding document styles using `python-docx`, the reporting engine uses `docxtpl` (Word + Jinja2 syntax). This allows end-users to freely modify `template.docx` using Microsoft Word (changing fonts, adding company logos, adjusting layout) without ever touching the Python source code. The script simply injects the data into the `{{ variable }}` tags.
 
+### Cross-Platform Terminal Window Screenshot Capture (`PyWinCtl` + `mss`)
+For ping handlers capturing visual console window evidence (`capture_screenshot: true`), Nagios-Sust uses [`PyWinCtl`](https://github.com/Kalmat/PyWinCtl) and [`mss`](https://github.com/BoboTiG/python-mss):
+- **Window Discovery & Bounding Box**: `PyWinCtl` tracks window positions cross-platform across Windows (Win32), macOS (Quartz/AppleScript), and Linux (Xlib/EWMH).
+- **Fast Screen Grabbing**: `mss` grabs the exact window bounding box coordinates and writes directly to PNG.
+- **Platform-Specific Terminal Spawners**:
+  - **Windows**: Spawns a console window running a temporary script displaying the prompt and output via `cmd.exe` with `CREATE_NEW_CONSOLE`.
+  - **macOS**: Spawns a dedicated window via `Terminal.app` using AppleScript (`osascript`), captures the window bounds, and automatically closes it.
+  - **Linux**: Prioritizes the user or system default terminal (`$TERMINAL` or `x-terminal-emulator`), followed by the native terminal for the active desktop environment (e.g. `konsole` for KDE/Plasma, `gnome-terminal` for GNOME/Unity, `xfce4-terminal` for XFCE, `mate-terminal` for MATE), with common distribution fallbacks (`xterm`).
+
+#### Technical Limitations & Graceful Degradation
+Desktop window capture operates directly on host OS display servers and has technical constraints:
+- **macOS Screen Recording Permission**: On macOS 10.15+, reading screen pixels requires the Python runtime / terminal application to be granted explicit permission in *System Settings → Privacy & Security → Screen Recording*. Without this permission, the OS restricts pixel capture.
+- **Linux Display Servers (X11 vs. Wayland)**: `mss` and `PyWinCtl` operate natively under X11 and XWayland. Native Wayland compositors intentionally isolate window surfaces for security, which may restrict capturing third-party window regions without desktop portal interaction.
+- **Locked Workstations & Headless Environments**: Screen grabbing requires an active, unlocked graphical desktop session. Running over headless SSH sessions, Docker containers, or locked workstations captures a blank/black frame.
+- **Graceful Degradation Guarantee**: To ensure report generation never halts due to environmental display constraints, window capture errors are caught gracefully: an informative notice is logged, and the execution proceeds with all network metrics (`latency`, `error`) preserved.
+
 ## Application Exit Codes
 
 Nagios-Sust defines unified, distinct numeric exit codes in `utils/exit_codes.py` for each fatal termination condition. These exit codes allow CI/CD runners, external wrapper scripts, and CLI operators to differentiate between configuration mistakes, source/connectivity failures, and template rendering errors:
