@@ -1,11 +1,13 @@
 # Nagios-Sust
 
-A modular, automated tool to collect evidence from network equipment based on Nagios Service Status PDF reports.
+A modular, automated tool to collect evidence from network equipment based on Nagios Service Status PDF reports and Aruba AirWave.
 
 ## Features
-- **Automated Parsing**: Reads Nagios PDF exports to identify alerting hosts.
-- **Rule-based Orchestration**: Uses a `config.yaml` file to dynamically route hosts to specific automation scripts (e.g., FortiGate).
-- **Selenium Automation**: Automatically logs into network appliances, checks interface status, and takes evidence screenshots.
+- **Multi-Source Device Discovery**: Dynamically discovers target devices from multiple sources:
+  - **Nagios PDF (`nagios_pdf`)**: Reads Nagios Service Status PDF exports to identify alerting hosts and services.
+  - **Aruba AirWave (`airwave`)**: Queries the AirWave XML API to discover network switches, controllers, and APs with customizable category and model filters.
+- **Rule-based Orchestration**: Uses a `config.yaml` file to dynamically route hosts to specific automation scripts (e.g., FortiGate, Aruba CX/ProCurve, Generic Ping).
+- **Browser & CLI Automation**: Automatically logs into network appliances via Selenium or SSH, checks interface status, gathers telemetry, and captures evidence screenshots.
 - **Word Template Engine**: Generates evidence reports using an easily customizable `template.docx` file. You can style the output directly in Microsoft Word.
 - **Smart Credential Management**: Prompts for your password only once per execution.
 - **Standalone Executable**: Distributed as an unpacked `.zip` for instant startup on Windows — no Python installation required.
@@ -47,6 +49,7 @@ If you wish to modify the code, develop new handlers, or run the tool directly f
    cp template_pt-BR.example.docx template_pt-BR.docx
    ```
 2. Place your Nagios export (`report.pdf`) in the project root, or configure device sources (`nagios_pdf`, `airwave`) in your config.
+
 3. Run the orchestrator:
    ```bash
    python main.py
@@ -71,11 +74,6 @@ python main.py -c custom_config.yaml
 Run directly for specific devices (bypassing `device_sources`):
 ```bash
 python main.py -d SW-CORE-01 -d SW-ACCESS-01
-```
-
-Using the compiled Windows executable:
-```powershell
-.\Nagios-Sust-x64.exe -d SW-CORE-01,SW-ACCESS-01
 ```
 
 4. The generated report will be saved as `Evidence_Report.docx` (or with language suffixes like `Evidence_Report_pt-BR.docx` if multiple languages are configured in `exporters`).
