@@ -182,12 +182,36 @@ nagios_pdf:
 
 airwave:
   url: "https://airwave"
+  folders: ["Campus A", "Campus B:Building 2"] # Optional: Filter devices by AirWave folder name (recursive)
   host_filter:
     startswith: "SW" # e.g. "SW" (use regex for multiple conditions)
     regex: "^(SW|AP)" # or regex pattern
   device_categories: ["switch"] # Optional: switch, thin_ap, controller
   models: [] # Optional: filter by model
 ```
+
+**AirWave Recursive Folder & Subfolder Filtering**:
+When `folders` is specified under `airwave:` in `config.yaml`, Nagios-Sust fetches AirWave's folder hierarchy (`folder_list.xml`) and includes devices in the specified folders plus all descendant subfolders recursively. Each enumerated host automatically includes `folder` (folder name) and `folder_path` (hierarchy path, e.g. `Top:Campus A:Building 1`) under `res.sources.airwave`.
+
+You can configure folders using three formats:
+1. **Parent Folder (Recursive)**: Matches the parent folder and automatically includes all its descendant subfolders:
+   ```yaml
+   airwave:
+     folders:
+       - "Campus A" # Includes Campus A, plus Building 1, Floor 1, etc.
+   ```
+2. **Direct Subfolder**: Target a specific subfolder directly anywhere in the tree. Note that specifying a subfolder name like `"Building 1"` will match any folder named "Building 1" regardless of its parent (for example, if there is a `Building 1` inside `Campus A` and another inside `Campus B`, devices from both will be included along with all their children):
+   ```yaml
+   airwave:
+     folders:
+       - "Building 1" # Matches all "Building 1" subfolders (e.g. inside Campus A, Campus B, etc.) and their children
+   ```
+3. **Subfolder Path (Hierarchical Disambiguation)**: If you only want `Building 1` from a specific campus (e.g. only inside `Campus A` and not `Campus B`), use `:` as the folder subpath separator to target the exact subfolder:
+   ```yaml
+   airwave:
+     folders:
+       - "Campus A:Building 1" # Targets Building 1 specifically within Campus A (excluding Campus B:Building 1)
+   ```
 
 > [!NOTE]
 > If `device_sources` is omitted from your configuration and no `-d` flags are passed on the CLI, the program will display the list of supported device sources and prompt you in the terminal to enter device names (comma-separated, similar to `-d`) or select a source name.

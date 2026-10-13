@@ -3,9 +3,13 @@ from unittest.mock import patch, MagicMock
 from utils.airwave import (
     AirWaveClient,
     filter_device_name,
+    get_folder_descendant_ids,
+    get_folder_path,
+    normalize_folders_filter,
     parse_airwave_device_info_html,
     parse_airwave_login_html,
     parse_devices_xml,
+    parse_folders_xml,
 )
 from utils.error_codes import ERR_OK, ERR_DEVICE_NOT_FOUND, ERR_DEVICE_DOWN
 import handlers.airwave as airwave_handler
@@ -187,6 +191,7 @@ class TestAirWaveIntegration(unittest.TestCase):
         class MockAirWaveClient(AirWaveClient):
             def __init__(self):
                 self._cached_devices = mock_devices
+                self._cached_folders = {}
 
         client = MockAirWaveClient()
 
@@ -304,6 +309,160 @@ class TestAirWaveIntegration(unittest.TestCase):
         self.assertIn("system_info", res)
         self.assertEqual(res["system_info"]["model"], "Aruba 6300M")
         self.assertEqual(res["system_info"]["serial_number"], "SG0000000003")
+
+    def test_parse_folders_xml_and_hierarchy(self):
+        """Validates folder hierarchy building, parent linking, and subfolder listing."""
+        sample_folder_xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <amp:amp_folder_list xmlns:amp="http://www.airwave.com">
+          <folder id="1">
+            <name>Top</name>
+            <parent_id>0</parent_id>
+          </folder>
+          <folder id="10">
+            <name>Campus A</name>
+            <parent_id>1</parent_id>
+          </folder>
+          <folder id="20">
+            <name>Campus B</name>
+            <parent_id>1</parent_id>
+          </folder>
+          <folder id="101">
+            <name>Building 1</name>
+            <parent_id>10</parent_id>
+          </folder>
+          <folder id="102">
+            <name>Building 2</name>
+            <parent_id>10</parent_id>
+          </folder>
+          <folder id="1011">
+            <name>Floor 1</name>
+            <parent_id>101</parent_id>
+          </folder>
+          <folder id="201">
+            <name>Building 1</name>
+            <parent_id>20</parent_id>
+          </folder>
+        </amp:amp_folder_list>
+        """
+        folders = parse_folders_xml(sample_folder_xml)
+        self.assertEqual(len(folders), 7)
+        self.assertIn("1", folders)
+        self.assertEqual(folders["1"]["name"], "Top")
+        self.assertIsNone(folders["1"]["parent_id"])
+        self.assertEqual(sorted(folders["1"]["subfolders"]), ["10", "20"])
+
+        self.assertEqual(folders["10"]["name"], "Campus A")
+        self.assertEqual(folders["10"]["parent_id"], "1")
+        self.assertEqual(sorted(folders["10"]["subfolders"]), ["101", "102"])
+
+        self.assertEqual(folders["101"]["subfolders"], ["1011"])
+        self.assertEqual(folders["20"]["subfolders"], ["201"])
+
+        # Hierarchy paths
+        self.assertEqual(get_folder_path("1", folders), "Top")
+        self.assertEqual(get_folder_path("10", folders), "Top:Campus A")
+        self.assertEqual(get_folder_path("101", folders), "Top:Campus A:Building 1")
+        self.assertEqual(get_folder_path("1011", folders), "Top:Campus A:Building 1:Floor 1")
+        self.assertEqual(get_folder_path("201", folders), "Top:Campus B:Building 1")
+
+        # Descendant resolution
+        # Match Campus A: includes 10, 101, 102, 1011
+        descendants = get_folder_descendant_ids(["Campus A"], folders)
+        self.assertEqual(descendants, {"10", "101", "102", "1011"})
+
+        # Direct Subfolder 'Building 1' matches all folders named 'Building 1' across Campus A and Campus B
+        descendants_b1 = get_folder_descendant_ids(["Building 1"], folders)
+        self.assertEqual(descendants_b1, {"101", "1011", "201"})
+
+        # Disambiguated Subfolder Path: 'Campus A:Building 1' matches only Campus A's Building 1
+        descendants_path_colon = get_folder_descendant_ids(["Campus A:Building 1"], folders)
+        self.assertEqual(descendants_path_colon, {"101", "1011"})
+
+        descendants_path_spaced = get_folder_descendant_ids(["Campus A: Building 1"], folders)
+        self.assertEqual(descendants_path_spaced, {"101", "1011"})
+
+        # 'Campus B:Building 1' matches only Campus B's Building 1
+        descendants_campus_b_b1 = get_folder_descendant_ids(["Campus B:Building 1"], folders)
+        self.assertEqual(descendants_campus_b_b1, {"201"})
+
+        descendants_full_path = get_folder_descendant_ids(["Top:Campus A:Building 1:Floor 1"], folders)
+        self.assertEqual(descendants_full_path, {"1011"})
+
+        # Match multiple folders: Campus A:Building 1 and Campus B
+        descendants_multi = get_folder_descendant_ids(["Campus A:Building 1", "Campus B"], folders)
+        self.assertEqual(descendants_multi, {"101", "1011", "20", "201"})
+
+        # Match nonexistent folder
+        descendants_none = get_folder_descendant_ids(["NonExistent"], folders)
+        self.assertEqual(descendants_none, set())
+
+    @patch("utils.airwave.ArubaAirwave")
+    def test_airwave_client_recursive_folder_filtering(self, mock_aw_cls):
+        """Verifies AirWaveClient.get_devices filters devices recursively by folder."""
+        sample_folder_xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <amp:amp_folder_list xmlns:amp="http://www.airwave.com">
+          <folder id="1"><name>Top</name><parent_id>0</parent_id></folder>
+          <folder id="10"><name>Campus A</name><parent_id>1</parent_id></folder>
+          <folder id="101"><name>Building 1</name><parent_id>10</parent_id></folder>
+          <folder id="20"><name>Campus B</name><parent_id>1</parent_id></folder>
+        </amp:amp_folder_list>"""
+
+        sample_devices_xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <amp:amp_ap_list xmlns:amp="http://www.airwave.com">
+          <ap id="1001">
+            <name>SW-CAMPUS-A-ROOT</name>
+            <lan_ip>10.0.1.1</lan_ip>
+            <folder id="10">Campus A</folder>
+          </ap>
+          <ap id="1002">
+            <name>SW-BUILDING-1</name>
+            <lan_ip>10.0.1.2</lan_ip>
+            <folder id="101">Building 1</folder>
+          </ap>
+          <ap id="1003">
+            <name>SW-CAMPUS-B</name>
+            <lan_ip>10.0.2.1</lan_ip>
+            <folder id="20">Campus B</folder>
+          </ap>
+        </amp:amp_ap_list>"""
+
+        client = AirWaveClient("10.0.0.1", "admin", "secret")
+        mock_aw = MagicMock()
+        mock_aw.get_folder_list.return_value = sample_folder_xml
+        mock_aw.command.return_value = sample_devices_xml
+        client._aw = mock_aw
+
+        # 1. Without folder filter: returns all 3 devices with resolved folder names and paths
+        all_devs = client.get_devices()
+        self.assertEqual(len(all_devs), 3)
+        self.assertEqual(all_devs[1]["folder"], "Building 1")
+        self.assertEqual(all_devs[1]["folder_path"], "Top:Campus A:Building 1")
+
+        # 2. Filter by "Campus A": returns SW-CAMPUS-A-ROOT and child SW-BUILDING-1
+        campus_a_devs = client.get_devices(folders=["Campus A"])
+        self.assertEqual(len(campus_a_devs), 2)
+        dev_names = [d["name"] for d in campus_a_devs]
+        self.assertIn("SW-CAMPUS-A-ROOT", dev_names)
+        self.assertIn("SW-BUILDING-1", dev_names)
+        self.assertNotIn("SW-CAMPUS-B", dev_names)
+
+        # 3. Filter by subfolder name "Building 1": returns only SW-BUILDING-1
+        b1_devs = client.get_devices(folders=["Building 1"])
+        self.assertEqual(len(b1_devs), 1)
+        self.assertEqual(b1_devs[0]["name"], "SW-BUILDING-1")
+
+        # 4. Filter by subfolder path "Campus A:Building 1": returns only SW-BUILDING-1
+        b1_path_devs = client.get_devices(folders=["Campus A:Building 1"])
+        self.assertEqual(len(b1_path_devs), 1)
+        self.assertEqual(b1_path_devs[0]["name"], "SW-BUILDING-1")
+
+        b1_spaced_devs = client.get_devices(folders=["Campus A: Building 1"])
+        self.assertEqual(len(b1_spaced_devs), 1)
+        self.assertEqual(b1_spaced_devs[0]["name"], "SW-BUILDING-1")
+
+        # 5. Filter by nonexistent folder: returns empty list
+        none_devs = client.get_devices(folders=["NonExistent"])
+        self.assertEqual(none_devs, [])
 
 
 if __name__ == "__main__":

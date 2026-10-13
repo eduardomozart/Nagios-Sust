@@ -50,6 +50,73 @@ class TestAirwaveSource(unittest.TestCase):
             host_filter={"startswith": "SW"},
             device_categories=None,
             models=None,
+            folders=None,
+        )
+
+    @patch("sources.airwave.AirWaveClient")
+    def test_airwave_source_with_folders_filter(self, mock_client_cls):
+        """Tests that folders configuration in airwave config is normalized and passed to get_devices."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.get_devices.return_value = [
+            {
+                "id": "538",
+                "name": "SW-CORE-01",
+                "ip": "192.0.2.11",
+                "model": "Aruba 6300M",
+                "serial_number": "SG0000000003",
+                "device_category": "switch",
+                "folder_id": "10",
+                "folder": "Building 1",
+                "folder_path": "Top:Campus A:Building 1",
+            }
+        ]
+
+        config = {
+            "device_sources": ["airwave"],
+            "airwave": {
+                "url": "https://airwave.local",
+                "username": "admin",
+                "password": "secretpassword",
+                "folders": ["Campus A", "Campus B"],
+            },
+        }
+
+        hosts = airwave.get_hosts(config)
+        self.assertEqual(len(hosts), 1)
+        self.assertEqual(hosts[0]["host"], "SW-CORE-01")
+        self.assertEqual(hosts[0]["folder_id"], "10")
+        self.assertEqual(hosts[0]["folder"], "Building 1")
+        self.assertEqual(hosts[0]["folder_path"], "Top:Campus A:Building 1")
+        mock_client.get_devices.assert_called_with(
+            host_filter=None,
+            device_categories=None,
+            models=None,
+            folders=["Campus A", "Campus B"],
+        )
+
+    @patch("sources.airwave.AirWaveClient")
+    def test_airwave_source_with_subfolder_path_filter(self, mock_client_cls):
+        """Tests that subfolder paths (e.g. 'Campus A:Building 1') in config are normalized and passed."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.get_devices.return_value = []
+
+        config = {
+            "airwave": {
+                "url": "https://airwave.local",
+                "username": "admin",
+                "password": "secretpassword",
+                "folders": ["Campus A:Building 1", "Campus B:Building 2"],
+            },
+        }
+
+        airwave.get_hosts(config)
+        mock_client.get_devices.assert_called_with(
+            host_filter=None,
+            device_categories=None,
+            models=None,
+            folders=["Campus A:Building 1", "Campus B:Building 2"],
         )
 
     @patch("sources.airwave.AirWaveClient", side_effect=Exception("AirWave connection refused"))

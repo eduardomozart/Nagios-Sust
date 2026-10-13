@@ -14,6 +14,7 @@ nagios_pdf:
 airwave:
   url: "https://airwave" # AirWave server URL or Hostname / IP (e.g. "https://10.0.0.5")
   # Filter devices during AirWave enumeration:
+  folders: [] # Filter by folder name or subfolder path using ':' (recursive, e.g. ["Campus A", "Campus B:Building 2"])
   host_filter:
     # startswith: "SW" # Filter by name prefix (e.g. "SW")
     regex: "^(ST|AP)" # Or use regex for multiple conditions (e.g. "^(SW-CORE|SW-ACCESS)")

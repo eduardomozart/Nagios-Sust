@@ -1,11 +1,12 @@
 import sys
-from utils.airwave import AirWaveClient
+from utils.airwave import AirWaveClient, normalize_folders_filter
 from utils.exit_codes import ERR_AIRWAVE_API_ERROR
 
 
 def get_hosts(config, options=None):
     """
     Ingests network devices directly from Aruba AirWave API via pyairwave.
+    Supports filtering by host_filter, device_categories, models, and recursive folders.
     """
     airwave_cfg = config.get("airwave", {})
     url = airwave_cfg.get("url") or airwave_cfg.get("host")
@@ -40,10 +41,20 @@ def get_hosts(config, options=None):
         device_categories = airwave_cfg.get("device_categories")
         models = airwave_cfg.get("models")
 
+        # Resolve folders filter from CLI options or config
+        raw_folders = (
+            (options.get("airwave_folders") if options else None)
+            or airwave_cfg.get("folders")
+            or airwave_cfg.get("folder")
+            or airwave_cfg.get("airwave_folders")
+        )
+        folders = normalize_folders_filter(raw_folders)
+
         devices = client.get_devices(
             host_filter=host_filter,
             device_categories=device_categories,
             models=models,
+            folders=folders if folders else None,
         )
         print(f"AirWave API returned {len(devices)} matching devices.")
 
@@ -57,6 +68,8 @@ def get_hosts(config, options=None):
                 "serial": dev.get("serial_number", ""),
                 "device_category": dev.get("device_category", ""),
                 "folder_id": dev.get("folder_id", ""),
+                "folder": dev.get("folder", ""),
+                "folder_path": dev.get("folder_path", ""),
             })
         return hosts
     except Exception as e:

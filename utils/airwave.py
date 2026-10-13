@@ -33,11 +33,163 @@ def filter_device_name(name, host_filter):
     return True
 
 
+def normalize_folders_filter(folders_input):
+    """
+    Normalizes folder filter input into a flat list of non-empty strings.
+    Handles strings, lists of strings, and comma-separated values.
+    """
+    if not folders_input:
+        return []
+    if isinstance(folders_input, str):
+        folders_input = [folders_input]
+    normalized = []
+    for item in folders_input:
+        if isinstance(item, str):
+            for part in item.split(","):
+                clean = part.strip().strip("\"'")
+                if clean and clean not in normalized:
+                    normalized.append(clean)
+        elif item:
+            clean = str(item).strip().strip("\"'")
+            if clean and clean not in normalized:
+                normalized.append(clean)
+    return normalized
+
+
+def parse_folders_xml(xml_data):
+    """
+    Parses folder_list.xml to extract folders and build parent-child hierarchy.
+    Returns a dict: {folder_id: {'id': folder_id, 'name': folder_name, 'parent_id': parent_id, 'subfolders': []}}
+    """
+    if not xml_data:
+        return {}
+
+    try:
+        root = ET.fromstring(xml_data)
+    except ET.ParseError as e:
+        print(f"Error parsing AirWave folder list XML: {e}")
+        return {}
+
+    folders = {}
+    for folder_el in root.iter():
+        tag = folder_el.tag.split("}")[-1]
+        if tag != "folder":
+            continue
+
+        fid = folder_el.get("id")
+        if not fid:
+            for child in folder_el:
+                if child.tag.split("}")[-1] == "id":
+                    fid = child.text
+                    break
+
+        if not fid:
+            continue
+
+        fid = str(fid).strip()
+
+        name = ""
+        parent_id = None
+        for child in folder_el:
+            ctag = child.tag.split("}")[-1]
+            if ctag == "name":
+                name = (child.text or "").strip()
+            elif ctag == "parent_id":
+                p_text = (child.text or "").strip()
+                parent_id = p_text if p_text and p_text != "0" else None
+
+        folders[fid] = {
+            "id": fid,
+            "name": name or f"Folder {fid}",
+            "parent_id": parent_id,
+            "subfolders": [],
+        }
+
+    # Build subfolder hierarchy
+    for fid, fdata in folders.items():
+        pid = fdata.get("parent_id")
+        if pid and pid in folders and pid != fid:
+            if fid not in folders[pid]["subfolders"]:
+                folders[pid]["subfolders"].append(fid)
+
+    return folders
+
+
+def get_folder_path(folder_id, folders_dict):
+    """
+    Returns the hierarchy path string (e.g. 'Top:Campus A:Building 1')
+    for a given folder_id using folders_dict.
+    """
+    if not folder_id or not folders_dict or folder_id not in folders_dict:
+        return ""
+
+    path_names = []
+    curr = folder_id
+    visited = set()
+    while curr and curr in folders_dict and curr not in visited:
+        visited.add(curr)
+        path_names.append(folders_dict[curr]["name"])
+        curr = folders_dict[curr].get("parent_id")
+
+    path_names.reverse()
+    return ":".join(path_names)
+
+
+def get_folder_descendant_ids(target_folders, folders_dict):
+    """
+    Resolves target folder names, subfolder paths with ':' (e.g. 'Campus A:Building 1'),
+    or folder IDs to a set of folder IDs, including all descendant subfolders recursively (case-insensitive).
+    """
+    if not target_folders or not folders_dict:
+        return set()
+
+    if isinstance(target_folders, str):
+        target_folders = [target_folders]
+
+    # Precompute folder paths for all folders
+    folder_paths = {fid: get_folder_path(fid, folders_dict).lower() for fid in folders_dict}
+
+    matched_root_ids = set()
+    for raw_target in target_folders:
+        t = str(raw_target).strip().lower()
+        if not t:
+            continue
+
+        # Check if target is a subfolder path with separator (':')
+        if ":" in t:
+            norm_target = re.sub(r"\s*:\s*", ":", t)
+            for fid, path_str in folder_paths.items():
+                if path_str == norm_target or path_str.endswith(f":{norm_target}"):
+                    matched_root_ids.add(fid)
+        else:
+            # Match directly by folder name or folder ID
+            for fid, fdata in folders_dict.items():
+                name_lower = fdata.get("name", "").strip().lower()
+                fid_lower = str(fid).strip().lower()
+                if t == name_lower or t == fid_lower:
+                    matched_root_ids.add(fid)
+
+    # Recursively gather descendants
+    all_ids = set()
+    queue = list(matched_root_ids)
+    while queue:
+        curr_id = queue.pop(0)
+        if curr_id in all_ids:
+            continue
+        all_ids.add(curr_id)
+        if curr_id in folders_dict:
+            for sub_id in folders_dict[curr_id].get("subfolders", []):
+                if sub_id not in all_ids:
+                    queue.append(sub_id)
+
+    return all_ids
+
+
 def parse_devices_xml(xml_data, host_filter=None, device_categories=None, models=None):
     """
     Parses ap_list.xml / ap_detail.xml to extract devices (APs/Switches/Controllers).
     Applies host_filter (startswith/regex), device_categories, and models filtering.
-    Returns list of dicts: [{'id': ..., 'name': ..., 'ip': ..., 'folder_id': ..., 'model': ..., 'serial_number': ...}]
+    Returns list of dicts: [{'id': ..., 'name': ..., 'ip': ..., 'folder_id': ..., 'folder': ..., 'model': ..., 'serial_number': ...}]
     """
     if not xml_data:
         return []
@@ -71,9 +223,11 @@ def parse_devices_xml(xml_data, host_filter=None, device_categories=None, models
         ).strip()
 
         folder_id = None
+        folder_name = ""
         folder_el = ap_el.find("folder")
         if folder_el is not None:
             folder_id = folder_el.get("id")
+            folder_name = (folder_el.text or "").strip()
 
         device_category = (ap_el.findtext("device_category") or "").strip()
         model = (ap_el.findtext("model") or "").strip()
@@ -103,6 +257,8 @@ def parse_devices_xml(xml_data, host_filter=None, device_categories=None, models
             "name": name,
             "ip": ip,
             "folder_id": folder_id,
+            "folder": folder_name,
+            "folder_path": folder_name,
             "device_category": device_category,
             "model": model,
             "serial_number": serial_number,
@@ -302,6 +458,9 @@ class AirWaveClient:
     """
     Wrapper around pyairwave to enumerate devices and folders from Aruba AirWave API.
     """
+    _aw = None
+    _cached_devices = None
+    _cached_folders = None
 
     def __init__(self, host, username, password):
         if ArubaAirwave is None:
@@ -324,22 +483,68 @@ class AirWaveClient:
         }
         self._aw = None
         self._cached_devices = None
+        self._cached_folders = None
 
     def _get_aw(self):
         if self._aw is None:
             self._aw = ArubaAirwave(self.aw_info, ssl_verify=False)
         return self._aw
 
-    def get_devices(self, host_filter=None, device_categories=None, models=None, force_refresh=False):
+    def get_folders(self, force_refresh=False):
+        """
+        Fetches and parses folder_list.xml from AirWave API.
+        Returns dict of folders: {id: {'id': id, 'name': name, 'parent_id': parent_id, 'subfolders': [...]}}
+        """
+        if getattr(self, "_cached_folders", None) is None or force_refresh:
+            try:
+                aw = self._get_aw()
+                xml_data = None
+                if hasattr(aw, "get_folder_list"):
+                    try:
+                        xml_data = aw.get_folder_list()
+                    except Exception:
+                        xml_data = None
+                if not xml_data:
+                    xml_data = aw.command(apiPath="/folder_list.xml")
+                self._cached_folders = parse_folders_xml(xml_data)
+            except Exception as e:
+                print(f"Warning: Could not fetch AirWave folder list: {e}")
+                self._cached_folders = {}
+        return self._cached_folders
+
+    def get_devices(self, host_filter=None, device_categories=None, models=None, folders=None, force_refresh=False):
         """
         Fetches all devices from /ap_list.xml and filters them based on host_filter,
-        device_categories, and models.
+        device_categories, models, and recursive folders.
         """
         if self._cached_devices is None or force_refresh:
             aw = self._get_aw()
             xml_data = aw.command(apiPath="/ap_list.xml")
             # Parse without host filters initially to store full cache
             self._cached_devices = parse_devices_xml(xml_data)
+
+            # Resolve folder names and breadcrumb paths using folder_list
+            folders_dict = self.get_folders(force_refresh=force_refresh)
+            if folders_dict:
+                for dev in self._cached_devices:
+                    fid = dev.get("folder_id")
+                    if fid and fid in folders_dict:
+                        dev["folder"] = folders_dict[fid]["name"]
+                        dev["folder_path"] = get_folder_path(fid, folders_dict)
+
+        folders_dict = self.get_folders()
+
+        # Resolve allowed folder IDs if folders filter is specified
+        allowed_folder_ids = None
+        normalized_folders = normalize_folders_filter(folders)
+        if normalized_folders:
+            if folders_dict:
+                allowed_folder_ids = get_folder_descendant_ids(normalized_folders, folders_dict)
+                if not allowed_folder_ids:
+                    print(f"Warning: None of the specified AirWave folders were found: {normalized_folders}")
+                    return []
+            else:
+                allowed_folder_ids = None
 
         # Apply filters to cached list
         filtered = []
@@ -363,6 +568,18 @@ class AirWaveClient:
                             break
                 if not is_match:
                     continue
+
+            # Check folder filter
+            if normalized_folders:
+                if allowed_folder_ids is not None:
+                    dev_fid = str(dev.get("folder_id") or "").strip()
+                    if dev_fid not in allowed_folder_ids:
+                        continue
+                else:
+                    # Fallback when folders_dict is empty: match by folder name
+                    dev_folder = (dev.get("folder") or "").lower()
+                    if not any(f.lower() in dev_folder for f in normalized_folders):
+                        continue
 
             filtered.append(dev)
 
