@@ -2,9 +2,9 @@ import re
 import xml.etree.ElementTree as ET
 
 try:
-    from pyairwave.awapi import ArubaAirwave
+    from airwaveapiclient import AirWaveAPIClient
 except ImportError:
-    ArubaAirwave = None
+    AirWaveAPIClient = None
 
 
 def filter_device_name(name, host_filter):
@@ -115,9 +115,9 @@ def parse_folders_xml(xml_data):
     return folders
 
 
-def get_folder_path(folder_id, folders_dict):
+def get_folder_path(folder_id, folders_dict, separator=" > "):
     """
-    Returns the hierarchy path string (e.g. 'Top:Campus A:Building 1')
+    Returns the hierarchy path string (e.g. 'Top > Campus A > Building 1')
     for a given folder_id using folders_dict.
     """
     if not folder_id or not folders_dict or folder_id not in folders_dict:
@@ -132,13 +132,14 @@ def get_folder_path(folder_id, folders_dict):
         curr = folders_dict[curr].get("parent_id")
 
     path_names.reverse()
-    return ":".join(path_names)
+    return separator.join(path_names)
 
 
 def get_folder_descendant_ids(target_folders, folders_dict):
     """
-    Resolves target folder names, subfolder paths with ':' (e.g. 'Campus A:Building 1'),
-    or folder IDs to a set of folder IDs, including all descendant subfolders recursively (case-insensitive).
+    Resolves target folder names, hierarchy paths with ' > ' (e.g. 'Campus A > Building 1' or
+    'Top > Campus A > Building 1'), or folder IDs to a set of folder IDs, including all
+    descendant subfolders recursively (case-insensitive).
     """
     if not target_folders or not folders_dict:
         return set()
@@ -155,11 +156,11 @@ def get_folder_descendant_ids(target_folders, folders_dict):
         if not t:
             continue
 
-        # Check if target is a subfolder path with separator (':')
-        if ":" in t:
-            norm_target = re.sub(r"\s*:\s*", ":", t)
+        # Check if target is a hierarchy path with '>'
+        if ">" in t:
+            norm_target = re.sub(r"\s*>\s*", " > ", t)
             for fid, path_str in folder_paths.items():
-                if path_str == norm_target or path_str.endswith(f":{norm_target}"):
+                if path_str == norm_target or path_str.endswith(f" > {norm_target}"):
                     matched_root_ids.add(fid)
         else:
             # Match directly by folder name or folder ID
@@ -456,38 +457,49 @@ def parse_airwave_login_html(html_content):
 
 class AirWaveClient:
     """
-    Wrapper around pyairwave to enumerate devices and folders from Aruba AirWave API.
+    Wrapper around airwaveapiclient to enumerate devices and folders from Aruba AirWave API.
     """
     _aw = None
     _cached_devices = None
     _cached_folders = None
 
     def __init__(self, host, username, password):
-        if ArubaAirwave is None:
+        if AirWaveAPIClient is None:
             raise ImportError(
-                "The 'pyairwave' library is required for AirWave API operations.\n"
+                "The 'airwaveapiclient' library is required for AirWave API operations.\n"
                 "Please install it using:\n"
-                "pip install git+https://github.com/eduardomozart/pyairwave.git"
+                "pip install git+https://github.com/eduardomozart/airwaveapiclient.git"
             )
 
-        # Normalize host string
-        clean_host = re.sub(r"^https?://", "", str(host)).rstrip("/")
+        # Normalize host string into a clean base URL (e.g. 'https://host/')
+        raw_host = str(host).strip()
+        if not raw_host.startswith("http://") and not raw_host.startswith("https://"):
+            raw_host = f"https://{raw_host}"
+        clean_url = raw_host.rstrip("/") + "/"
+        clean_host = re.sub(r"^https?://", "", raw_host).rstrip("/")
 
         self.host = clean_host
+        self.url = clean_url
         self.username = username
         self.password = password
-        self.aw_info = {
-            "ip": self.host,
-            "username": self.username,
-            "password": self.password,
-        }
         self._aw = None
         self._cached_devices = None
         self._cached_folders = None
 
     def _get_aw(self):
         if self._aw is None:
-            self._aw = ArubaAirwave(self.aw_info, ssl_verify=False)
+            self._aw = AirWaveAPIClient(
+                url=self.url,
+                username=self.username,
+                password=self.password,
+                verify=False,
+            )
+            try:
+                login_res = self._aw.login()
+                if login_res is not None and getattr(login_res, "status_code", 200) >= 400:
+                    print(f"Warning: AirWave API login returned status {login_res.status_code}")
+            except Exception as e:
+                print(f"Warning: AirWave API login attempt failed: {e}")
         return self._aw
 
     def get_folders(self, force_refresh=False):
@@ -499,12 +511,18 @@ class AirWaveClient:
             try:
                 aw = self._get_aw()
                 xml_data = None
-                if hasattr(aw, "get_folder_list"):
+                if hasattr(aw, "folder_list"):
+                    try:
+                        res = aw.folder_list()
+                        xml_data = res.text if hasattr(res, "text") else res
+                    except Exception:
+                        xml_data = None
+                if not xml_data and hasattr(aw, "get_folder_list"):
                     try:
                         xml_data = aw.get_folder_list()
                     except Exception:
                         xml_data = None
-                if not xml_data:
+                if not xml_data and hasattr(aw, "command"):
                     xml_data = aw.command(apiPath="/folder_list.xml")
                 self._cached_folders = parse_folders_xml(xml_data)
             except Exception as e:
@@ -519,7 +537,15 @@ class AirWaveClient:
         """
         if self._cached_devices is None or force_refresh:
             aw = self._get_aw()
-            xml_data = aw.command(apiPath="/ap_list.xml")
+            xml_data = None
+            if hasattr(aw, "ap_list"):
+                try:
+                    res = aw.ap_list()
+                    xml_data = res.text if hasattr(res, "text") else res
+                except Exception:
+                    xml_data = None
+            if not xml_data and hasattr(aw, "command"):
+                xml_data = aw.command(apiPath="/ap_list.xml")
             # Parse without host filters initially to store full cache
             self._cached_devices = parse_devices_xml(xml_data)
 
@@ -576,9 +602,19 @@ class AirWaveClient:
                     if dev_fid not in allowed_folder_ids:
                         continue
                 else:
-                    # Fallback when folders_dict is empty: match by folder name
+                    # Fallback when folders_dict is empty: match by dev folder path
                     dev_folder = (dev.get("folder") or "").lower()
-                    if not any(f.lower() in dev_folder for f in normalized_folders):
+                    matched_any = False
+                    for f in normalized_folders:
+                        target = str(f).strip().lower()
+                        if target == dev_folder or dev_folder.endswith(f" > {target}"):
+                            matched_any = True
+                            break
+                        leaf = target.split(" > ")[-1].strip()
+                        if leaf and leaf in dev_folder:
+                            matched_any = True
+                            break
+                    if not matched_any:
                         continue
 
             filtered.append(dev)

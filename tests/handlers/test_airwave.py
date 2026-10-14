@@ -360,10 +360,10 @@ class TestAirWaveIntegration(unittest.TestCase):
 
         # Hierarchy paths
         self.assertEqual(get_folder_path("1", folders), "Top")
-        self.assertEqual(get_folder_path("10", folders), "Top:Campus A")
-        self.assertEqual(get_folder_path("101", folders), "Top:Campus A:Building 1")
-        self.assertEqual(get_folder_path("1011", folders), "Top:Campus A:Building 1:Floor 1")
-        self.assertEqual(get_folder_path("201", folders), "Top:Campus B:Building 1")
+        self.assertEqual(get_folder_path("10", folders), "Top > Campus A")
+        self.assertEqual(get_folder_path("101", folders), "Top > Campus A > Building 1")
+        self.assertEqual(get_folder_path("1011", folders), "Top > Campus A > Building 1 > Floor 1")
+        self.assertEqual(get_folder_path("201", folders), "Top > Campus B > Building 1")
 
         # Descendant resolution
         # Match Campus A: includes 10, 101, 102, 1011
@@ -374,29 +374,95 @@ class TestAirWaveIntegration(unittest.TestCase):
         descendants_b1 = get_folder_descendant_ids(["Building 1"], folders)
         self.assertEqual(descendants_b1, {"101", "1011", "201"})
 
-        # Disambiguated Subfolder Path: 'Campus A:Building 1' matches only Campus A's Building 1
-        descendants_path_colon = get_folder_descendant_ids(["Campus A:Building 1"], folders)
-        self.assertEqual(descendants_path_colon, {"101", "1011"})
+        # Disambiguated Subfolder Path: 'Campus A > Building 1' (omits Top >) matches Campus A's Building 1
+        descendants_path = get_folder_descendant_ids(["Campus A > Building 1"], folders)
+        self.assertEqual(descendants_path, {"101", "1011"})
 
-        descendants_path_spaced = get_folder_descendant_ids(["Campus A: Building 1"], folders)
+        # Full path with Top > matches Campus A's Building 1
+        descendants_top_path = get_folder_descendant_ids(["Top > Campus A > Building 1"], folders)
+        self.assertEqual(descendants_top_path, {"101", "1011"})
+
+        descendants_path_spaced = get_folder_descendant_ids(["Campus A  >  Building 1"], folders)
         self.assertEqual(descendants_path_spaced, {"101", "1011"})
 
-        # 'Campus B:Building 1' matches only Campus B's Building 1
-        descendants_campus_b_b1 = get_folder_descendant_ids(["Campus B:Building 1"], folders)
+        # 'Campus B > Building 1' matches only Campus B's Building 1
+        descendants_campus_b_b1 = get_folder_descendant_ids(["Campus B > Building 1"], folders)
         self.assertEqual(descendants_campus_b_b1, {"201"})
 
-        descendants_full_path = get_folder_descendant_ids(["Top:Campus A:Building 1:Floor 1"], folders)
+        descendants_full_path = get_folder_descendant_ids(["Top > Campus A > Building 1 > Floor 1"], folders)
         self.assertEqual(descendants_full_path, {"1011"})
 
-        # Match multiple folders: Campus A:Building 1 and Campus B
-        descendants_multi = get_folder_descendant_ids(["Campus A:Building 1", "Campus B"], folders)
+        # Match multiple folders: Campus A > Building 1 and Campus B
+        descendants_multi = get_folder_descendant_ids(["Campus A > Building 1", "Campus B"], folders)
         self.assertEqual(descendants_multi, {"101", "1011", "20", "201"})
+
+        # Root folder 'Top' matches all folders
+        descendants_top = get_folder_descendant_ids(["Top"], folders)
+        self.assertEqual(descendants_top, {"1", "10", "101", "1011", "102", "20", "201"})
+
+        # Match by folder ID
+        descendants_fid = get_folder_descendant_ids(["101"], folders)
+        self.assertEqual(descendants_fid, {"101", "1011"})
 
         # Match nonexistent folder
         descendants_none = get_folder_descendant_ids(["NonExistent"], folders)
         self.assertEqual(descendants_none, set())
 
-    @patch("utils.airwave.ArubaAirwave")
+    def test_subpath_matching_across_multiple_locations(self):
+        """Verifies subpaths match all matching branches across locations without prepending Top >."""
+        multi_location_folders = {
+            "1": {"id": "1", "name": "Top", "parent_id": None, "subfolders": ["10", "20"]},
+            "10": {"id": "10", "name": "Location A", "parent_id": "1", "subfolders": ["100"]},
+            "100": {"id": "100", "name": "Campus A", "parent_id": "10", "subfolders": ["1001"]},
+            "1001": {"id": "1001", "name": "Building 1", "parent_id": "100", "subfolders": []},
+            "20": {"id": "20", "name": "Location B", "parent_id": "1", "subfolders": ["200"]},
+            "200": {"id": "200", "name": "Campus A", "parent_id": "20", "subfolders": ["2001"]},
+            "2001": {"id": "2001", "name": "Building 1", "parent_id": "200", "subfolders": []},
+        }
+
+        # Subpath 'Campus A > Building 1' matches both Location A and Location B without prepending 'Top >'
+        matched = get_folder_descendant_ids(["Campus A > Building 1"], multi_location_folders)
+        self.assertEqual(matched, {"1001", "2001"})
+
+        # Specific path 'Location A > Campus A > Building 1' matches only Location A's Building 1
+        matched_loc_a = get_folder_descendant_ids(["Location A > Campus A > Building 1"], multi_location_folders)
+        self.assertEqual(matched_loc_a, {"1001"})
+
+        # Full path 'Top > Location B > Campus A > Building 1' matches only Location B's Building 1
+        matched_loc_b = get_folder_descendant_ids(["Top > Location B > Campus A > Building 1"], multi_location_folders)
+        self.assertEqual(matched_loc_b, {"2001"})
+
+    def test_nested_top_folder_hierarchy_matching(self):
+        """Verifies hierarchies with nested folders named 'Top' match correctly."""
+        nested_top_folders = {
+            "1": {"id": "1", "name": "Top", "parent_id": None, "subfolders": ["2"]},
+            "2": {"id": "2", "name": "Top", "parent_id": "1", "subfolders": ["3"]},
+            "3": {"id": "3", "name": "Location A", "parent_id": "2", "subfolders": []},
+        }
+
+        # Root Top includes all: 1, 2, 3
+        matched_root = get_folder_descendant_ids(["Top"], nested_top_folders)
+        self.assertEqual(matched_root, {"1", "2", "3"})
+
+        # Subpath 'Top > Location A' matches folder 3
+        matched_sub = get_folder_descendant_ids(["Top > Location A"], nested_top_folders)
+        self.assertEqual(matched_sub, {"3"})
+
+        # Full path 'Top > Top > Location A' matches folder 3
+        matched_full = get_folder_descendant_ids(["Top > Top > Location A"], nested_top_folders)
+        self.assertEqual(matched_full, {"3"})
+
+        # Subpath 'Location A' matches folder 3
+        matched_bare = get_folder_descendant_ids(["Location A"], nested_top_folders)
+        self.assertEqual(matched_bare, {"3"})
+
+        # Match by folder ID (string and integer)
+        matched_id_str = get_folder_descendant_ids(["3"], nested_top_folders)
+        self.assertEqual(matched_id_str, {"3"})
+        matched_id_int = get_folder_descendant_ids([3], nested_top_folders)
+        self.assertEqual(matched_id_int, {"3"})
+
+    @patch("utils.airwave.AirWaveAPIClient")
     def test_airwave_client_recursive_folder_filtering(self, mock_aw_cls):
         """Verifies AirWaveClient.get_devices filters devices recursively by folder."""
         sample_folder_xml = """<?xml version="1.0" encoding="UTF-8"?>
@@ -428,15 +494,15 @@ class TestAirWaveIntegration(unittest.TestCase):
 
         client = AirWaveClient("10.0.0.1", "admin", "secret")
         mock_aw = MagicMock()
-        mock_aw.get_folder_list.return_value = sample_folder_xml
-        mock_aw.command.return_value = sample_devices_xml
+        mock_aw.folder_list.return_value = MagicMock(text=sample_folder_xml, status_code=200)
+        mock_aw.ap_list.return_value = MagicMock(text=sample_devices_xml, status_code=200)
         client._aw = mock_aw
 
         # 1. Without folder filter: returns all 3 devices with resolved folder names and paths
         all_devs = client.get_devices()
         self.assertEqual(len(all_devs), 3)
         self.assertEqual(all_devs[1]["folder"], "Building 1")
-        self.assertEqual(all_devs[1]["folder_path"], "Top:Campus A:Building 1")
+        self.assertEqual(all_devs[1]["folder_path"], "Top > Campus A > Building 1")
 
         # 2. Filter by "Campus A": returns SW-CAMPUS-A-ROOT and child SW-BUILDING-1
         campus_a_devs = client.get_devices(folders=["Campus A"])
@@ -451,18 +517,30 @@ class TestAirWaveIntegration(unittest.TestCase):
         self.assertEqual(len(b1_devs), 1)
         self.assertEqual(b1_devs[0]["name"], "SW-BUILDING-1")
 
-        # 4. Filter by subfolder path "Campus A:Building 1": returns only SW-BUILDING-1
-        b1_path_devs = client.get_devices(folders=["Campus A:Building 1"])
+        # 4. Filter by subfolder path "Campus A > Building 1" (omits Top >): returns only SW-BUILDING-1
+        b1_path_devs = client.get_devices(folders=["Campus A > Building 1"])
         self.assertEqual(len(b1_path_devs), 1)
         self.assertEqual(b1_path_devs[0]["name"], "SW-BUILDING-1")
 
-        b1_spaced_devs = client.get_devices(folders=["Campus A: Building 1"])
+        # 5. Filter by full path "Top > Campus A > Building 1": returns only SW-BUILDING-1
+        b1_top_path_devs = client.get_devices(folders=["Top > Campus A > Building 1"])
+        self.assertEqual(len(b1_top_path_devs), 1)
+        self.assertEqual(b1_top_path_devs[0]["name"], "SW-BUILDING-1")
+
+        b1_spaced_devs = client.get_devices(folders=["Campus A  >  Building 1"])
         self.assertEqual(len(b1_spaced_devs), 1)
         self.assertEqual(b1_spaced_devs[0]["name"], "SW-BUILDING-1")
 
-        # 5. Filter by nonexistent folder: returns empty list
+        # 6. Filter by nonexistent folder: returns empty list
         none_devs = client.get_devices(folders=["NonExistent"])
         self.assertEqual(none_devs, [])
+
+    @patch("utils.airwave.AirWaveAPIClient", None)
+    def test_airwave_client_missing_dependency_raises_import_error(self):
+        """Verifies AirWaveClient raises an informative ImportError when airwaveapiclient is missing."""
+        with self.assertRaises(ImportError) as ctx:
+            AirWaveClient("10.0.0.1", "admin", "secret")
+        self.assertIn("airwaveapiclient", str(ctx.exception))
 
 
 if __name__ == "__main__":

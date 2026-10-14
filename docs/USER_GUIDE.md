@@ -169,7 +169,7 @@ alerts:
 ### Device Sources & Multi-Source Enumeration
 Nagios-Sust supports multiple device discovery sources under `device_sources`:
 - **`nagios_pdf`**: Reads and parses Nagios Service Status PDF reports.
-- **`airwave`**: Connects to the Aruba AirWave API via `pyairwave` to enumerate network devices.
+- **`airwave`**: Connects to the Aruba AirWave API via `airwaveapiclient` to enumerate network devices.
 
 You can specify one or multiple sources simultaneously. When multiple sources are specified, hosts are deduplicated by name and their metadata is merged:
 ```yaml
@@ -182,7 +182,7 @@ nagios_pdf:
 
 airwave:
   url: "https://airwave"
-  folders: ["Campus A", "Campus B:Building 2"] # Optional: Filter devices by AirWave folder name (recursive)
+  folders: ["Top > Campus A", "Campus B > Building 2"] # Optional: Filter devices by AirWave folder (recursive)
   host_filter:
     startswith: "SW" # e.g. "SW" (use regex for multiple conditions)
     regex: "^(SW|AP)" # or regex pattern
@@ -190,27 +190,60 @@ airwave:
   models: [] # Optional: filter by model
 ```
 
-**AirWave Recursive Folder & Subfolder Filtering**:
-When `folders` is specified under `airwave:` in `config.yaml`, Nagios-Sust fetches AirWave's folder hierarchy (`folder_list.xml`) and includes devices in the specified folders plus all descendant subfolders recursively. Each enumerated host automatically includes `folder` (folder name) and `folder_path` (hierarchy path, e.g. `Top:Campus A:Building 1`) under `res.sources.airwave`.
+### AirWave Folder Filtering & Matching Scenarios
+When `folders` is specified under `airwave:` in `config.yaml`, Nagios-Sust fetches AirWave's folder hierarchy (`folder_list.xml`) and includes devices in the specified folders plus all descendant subfolders recursively. Each enumerated host automatically includes `folder` (leaf folder name) and `folder_path` (hierarchy path, e.g. `Top > Campus A > Building 1`) under `res.sources.airwave`.
 
-You can configure folders using three formats:
-1. **Parent Folder (Recursive)**: Matches the parent folder and automatically includes all its descendant subfolders:
+Nagios-Sust supports multiple intuitive folder matching scenarios:
+
+1. **Default Behavior (Root `Top` - Omitted or Empty)**:
+   Leaving `folders: []` empty or omitting `folders` altogether includes all devices across the entire AirWave instance (equivalent to querying root `Top`).
    ```yaml
    airwave:
-     folders:
-       - "Campus A" # Includes Campus A, plus Building 1, Floor 1, etc.
+     folders: [] # Discovers all devices across the entire AirWave instance
    ```
-2. **Direct Subfolder**: Target a specific subfolder directly anywhere in the tree. Note that specifying a subfolder name like `"Building 1"` will match any folder named "Building 1" regardless of its parent (for example, if there is a `Building 1` inside `Campus A` and another inside `Campus B`, devices from both will be included along with all their children):
+
+2. **Full Hierarchy Path Matching**:
+   Target a specific branch of the hierarchy by specifying its path from the root down to the target:
    ```yaml
    airwave:
      folders:
-       - "Building 1" # Matches all "Building 1" subfolders (e.g. inside Campus A, Campus B, etc.) and their children
+       - "Top > Campus A > Building 1" # Targets Building 1 within Campus A
    ```
-3. **Subfolder Path (Hierarchical Disambiguation)**: If you only want `Building 1` from a specific campus (e.g. only inside `Campus A` and not `Campus B`), use `:` as the folder subpath separator to target the exact subfolder:
+
+3. **Subpath & Intermediate Matching**:
+   When specifying a subpath (omitting `Top >`), Nagios-Sust matches any hierarchy branch ending with the specified sequence without prepending path segments. If the same subpath exists in multiple locations, all matching branches and their children are included:
    ```yaml
    airwave:
      folders:
-       - "Campus A:Building 1" # Targets Building 1 specifically within Campus A (excluding Campus B:Building 1)
+       - "Campus A > Building 1" # Matches both 'Top > Location A > Campus A > Building 1'
+                                # and 'Top > Location B > Campus A > Building 1'
+   ```
+
+4. **Hierarchical Disambiguation**:
+   If multiple campuses or locations share folder names, specify enough parent hierarchy context to target only the intended branch:
+   ```yaml
+   airwave:
+     folders:
+       - "Location A > Campus A > Building 1" # Targets Building 1 specifically inside Location A
+       - "Top > Location B > Campus A > Building 1" # Full hierarchy disambiguation
+   ```
+
+5. **Bare Folder Name (Recursive)**:
+   Target a folder directly by name anywhere in the tree. Note that specifying a bare name like `"Building 1"` matches any folder named `Building 1` across all campuses:
+   ```yaml
+   airwave:
+     folders:
+       - "Campus A"     # Includes Campus A, plus Building 1, Floor 1, etc.
+       - "Building 1"   # Includes Building 1 from Campus A, Campus B, etc.
+   ```
+
+6. **Numeric Folder ID**:
+   Target an AirWave folder directly by its internal integer ID (as a number or quoted string):
+   ```yaml
+   airwave:
+     folders:
+       - 101   # Integer folder ID
+       - "102" # Quoted string folder ID
    ```
 
 > [!NOTE]

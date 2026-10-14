@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 from unittest.mock import patch
 import handlers.generic_ping as generic_ping_mod
 
@@ -85,15 +86,22 @@ class TestGenericPingHandler(unittest.TestCase):
         cmd_called = mock_subprocess.call_args[0][0]
         self.assertIn("3", cmd_called)
 
+    @patch("handlers.generic_ping.capture_window_screenshot")
     @patch("handlers.generic_ping.ping_with_output")
     @patch("handlers.generic_ping.socket.gethostbyname")
-    def test_single_ping_execution_with_screenshot(self, mock_gethostbyname, mock_ping_with_output):
+    def test_single_ping_execution_with_screenshot(
+        self, mock_gethostbyname, mock_ping_with_output, mock_capture_window_screenshot
+    ):
         """Verifies ping_with_output is executed exactly once even when capture_screenshot is True."""
         mock_gethostbyname.return_value = "192.0.2.1"
         mock_ping_with_output.return_value = ("15", "Reply from 192.0.2.1: bytes=32 time=15ms TTL=64")
 
-        res = generic_ping_mod.execute_generic_ping("test-host", "", {"capture_screenshot": True})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            res = generic_ping_mod.execute_generic_ping(
+                "test-host", "", {"capture_screenshot": True, "base_dir": tmp_dir}
+            )
         self.assertEqual(mock_ping_with_output.call_count, 1)
+        self.assertEqual(mock_capture_window_screenshot.call_count, 1)
         self.assertEqual(res["latency"], 15)
 
     @patch("handlers.generic_ping.capture_window_screenshot")
@@ -104,7 +112,14 @@ class TestGenericPingHandler(unittest.TestCase):
     ):
         """Verifies screenshot launches capture_window_screenshot rendering raw_output without running ping twice."""
         mock_gethostbyname.return_value = "192.0.2.1"
-        mock_ping_with_output.return_value = ("20", "Pinging 192.0.2.1...\nReply from 192.0.2.1: bytes=32 time=20ms")
+        ping_output = (
+            "Pinging 192.0.2.1 with 32 bytes of data:\n"
+            "Reply from 192.0.2.1: bytes=32 time=20ms TTL=64\n"
+            "Reply from 192.0.2.1: bytes=32 time=20ms TTL=64\n"
+            "Reply from 192.0.2.1: bytes=32 time=20ms TTL=64\n"
+            "Reply from 192.0.2.1: bytes=32 time=20ms TTL=64\n"
+        )
+        mock_ping_with_output.return_value = ("20", ping_output)
 
         def fake_capture(title, cmd, raw, out_path):
             with open(out_path, "wb") as f:
@@ -113,7 +128,10 @@ class TestGenericPingHandler(unittest.TestCase):
 
         mock_capture_window_screenshot.side_effect = fake_capture
 
-        res = generic_ping_mod.execute_generic_ping("win-host", "", {"capture_screenshot": True})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            res = generic_ping_mod.execute_generic_ping(
+                "win-host", "", {"capture_screenshot": True, "base_dir": tmp_dir}
+            )
 
         # Ping must be executed exactly once
         self.assertEqual(mock_ping_with_output.call_count, 1)
@@ -121,7 +139,7 @@ class TestGenericPingHandler(unittest.TestCase):
         self.assertTrue(mock_capture_window_screenshot.called)
         call_args = mock_capture_window_screenshot.call_args[0]
         self.assertIn("Nagios-Ping-win-host", call_args[0])
-        self.assertEqual(call_args[2], "Pinging 192.0.2.1...\nReply from 192.0.2.1: bytes=32 time=20ms")
+        self.assertEqual(call_args[2], ping_output)
         self.assertIn("screenshot", res)
         self.assertTrue(res["screenshot"]["captured"])
 
@@ -135,7 +153,10 @@ class TestGenericPingHandler(unittest.TestCase):
         mock_gethostbyname.return_value = "192.0.2.1"
         mock_ping_with_output.return_value = ("20", "Reply from 192.0.2.1: bytes=32 time=20ms")
 
-        res = generic_ping_mod.execute_generic_ping("headless-host", "", {"capture_screenshot": True})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            res = generic_ping_mod.execute_generic_ping(
+                "headless-host", "", {"capture_screenshot": True, "base_dir": tmp_dir}
+            )
 
         self.assertEqual(res["latency"], 20)
         self.assertEqual(res["error"], 0)

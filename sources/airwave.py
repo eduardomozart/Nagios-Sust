@@ -5,7 +5,7 @@ from utils.exit_codes import ERR_AIRWAVE_API_ERROR
 
 def get_hosts(config, options=None):
     """
-    Ingests network devices directly from Aruba AirWave API via pyairwave.
+    Ingests network devices directly from Aruba AirWave API via airwaveapiclient.
     Supports filtering by host_filter, device_categories, models, and recursive folders.
     """
     airwave_cfg = config.get("airwave", {})

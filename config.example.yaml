@@ -14,7 +14,7 @@ nagios_pdf:
 airwave:
   url: "https://airwave" # AirWave server URL or Hostname / IP (e.g. "https://10.0.0.5")
   # Filter devices during AirWave enumeration:
-  folders: [] # Filter by folder name or subfolder path using ':' (recursive, e.g. ["Campus A", "Campus B:Building 2"])
+  folders: [] # Filter by folder name, hierarchy path using ' > ', or folder ID (recursive, e.g. ["Top > Campus A", "Campus B > Building 2", 101]). Empty or omitted includes all devices under root 'Top'.
   host_filter:
     # startswith: "SW" # Filter by name prefix (e.g. "SW")
     regex: "^(ST|AP)" # Or use regex for multiple conditions (e.g. "^(SW-CORE|SW-ACCESS)")
@@ -56,7 +56,7 @@ rules:
     host_filter:
       # startswith: "ST" # Matches ST-CORE-01, ST-ACCESS-01, etc.
       regex: "^(ST|AP)" # Matches ST-CORE-01, ST-ACCESS-01, AP-01, etc.
-    handler: "airwave" # Connects via pyairwave API and captures WebUI Device Info tab
+    handler: "airwave" # Connects via airwaveapiclient API and captures WebUI Device Info tab
     options:
       # airwave_url: "https://airwave" # Optional override (defaults to global airwave.url)
       capture_screenshot: true

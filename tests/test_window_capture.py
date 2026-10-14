@@ -88,12 +88,16 @@ class TestWindowCapture(unittest.TestCase):
         mock_proc = MagicMock()
         mock_popen.return_value = mock_proc
 
-        handle = wc_mod._spawn_terminal("windows", "WinTest", "ping -n 4 1.1.1.1", "output")
+        handle = wc_mod._spawn_terminal("windows", "WinTest", "C:\\>ping -n 4 1.1.1.1", "output")
         try:
             self.assertEqual(handle["system"], "windows")
             self.assertTrue(mock_popen.called)
             cmd_str = mock_popen.call_args[0][0]
             self.assertIn("cmd.exe /c", cmd_str)
+            # Verify batch script escapes CMD special characters to avoid redirection
+            with open(handle["script_path"], "r", encoding="utf-8") as bf:
+                bat_content = bf.read()
+            self.assertIn("echo C:\\^>ping -n 4 1.1.1.1", bat_content)
         finally:
             wc_mod._close_terminal(handle)
 

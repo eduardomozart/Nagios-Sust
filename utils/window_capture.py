@@ -180,11 +180,20 @@ def _spawn_terminal(system, title, command, raw_output):
         handle["txt_path"] = tf.name
 
     if system == "windows":
+        # Escape CMD special characters (^, &, <, >, |) for batch echo to prevent accidental redirection
+        safe_command = (
+            str(command or "")
+            .replace("^", "^^")
+            .replace("&", "^&")
+            .replace("<", "^<")
+            .replace(">", "^>")
+            .replace("|", "^|")
+        )
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".bat", encoding="utf-8") as bf:
             bf.write(
                 f"@echo off\r\n"
                 f"title {title}\r\n"
-                f"echo {command}\r\n"
+                f"echo {safe_command}\r\n"
                 f"echo.\r\n"
                 f"type \"{handle['txt_path']}\"\r\n"
                 f"timeout /t 5 >nul\r\n"
