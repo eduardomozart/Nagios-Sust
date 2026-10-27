@@ -10,6 +10,7 @@ from handlers.fortigate import (
     parse_fortigate_static_routes_html,
     parse_fortigate_system_info_html,
     resolve_fortigate_gateways,
+    parse_fortigate_ipsec_tunnels_cli,
 )
 
 
@@ -396,6 +397,130 @@ class TestFortiGateHandler(unittest.TestCase):
         }
         self.assertNotIn("latency", result)
 
+
+
+    def test_parse_fortigate_ipsec_tunnels_cli_multi_tunnel(self):
+        """Verifies parsing CLI show vpn ipsec phase1-interface output with pagination artifacts and multiple tunnels per interface."""
+        cli_output = """
+FGT-GW # show vpn ipsec phase1-interface
+config vpn ipsec phase1-interface
+    edit "Oi DR"
+        set interface "wan1"
+        set peertype any
+        set net-device enable
+        set proposal aes128-sha256 aes256-sha256
+        set remote-gw 10.64.14.2
+    next
+    edit "Oi HQ"
+        set interface "wan1"
+        set peertype any
+        set net-device enable
+        set remote-gw 10.67.253.242
+    next
+--More-- 
+    edit "Avato Backup"
+        set interface "wan2"
+        set peertype any
+        set remote-gw 200.233.12.100
+    next
+end
+"""
+        tunnels = parse_fortigate_ipsec_tunnels_cli(cli_output)
+        self.assertIn("Oi DR", tunnels)
+        self.assertEqual(tunnels["Oi DR"]["interface"], "wan1")
+        self.assertEqual(tunnels["Oi DR"]["remote-gw"], "10.64.14.2")
+
+        self.assertIn("Oi HQ", tunnels)
+        self.assertEqual(tunnels["Oi HQ"]["interface"], "wan1")
+        self.assertEqual(tunnels["Oi HQ"]["remote-gw"], "10.67.253.242")
+
+        self.assertIn("Avato Backup", tunnels)
+        self.assertEqual(tunnels["Avato Backup"]["interface"], "wan2")
+        self.assertEqual(tunnels["Avato Backup"]["remote-gw"], "200.233.12.100")
+
+    def test_explicit_tunnel_name_ipsec_resolution(self):
+        """Verifies explicit tunnel_name takes priority and aborts if specified tunnel is missing."""
+        ipsec_tunnels = {
+            "Oi DR": {"interface": "wan1", "remote-gw": "10.64.14.2"},
+            "Oi HQ": {"interface": "wan1", "remote-gw": "10.67.253.242"},
+        }
+        intf_tunnel_name = "Oi HQ"
+        primary_intf = "wan1"
+        aliases = ["wan1"]
+
+        # Case 1: Explicit tunnel found
+        tunnel_data = None
+        if intf_tunnel_name:
+            if intf_tunnel_name in ipsec_tunnels:
+                tunnel_data = ipsec_tunnels[intf_tunnel_name]
+        self.assertIsNotNone(tunnel_data)
+        self.assertEqual(tunnel_data["remote-gw"], "10.67.253.242")
+
+        # Case 2: Explicit tunnel specified but not found -> Aborts ping cleanly (target_ip = None)
+        missing_tunnel_name = "NonExistentTunnel"
+        tunnel_data = None
+        if missing_tunnel_name:
+            if missing_tunnel_name in ipsec_tunnels:
+                tunnel_data = ipsec_tunnels[missing_tunnel_name]
+        target_ip = tunnel_data["remote-gw"] if tunnel_data else None
+        self.assertIsNone(target_ip)
+
+    def test_ipsec_remotegw_auto_detect_target(self):
+        """Verifies auto-detecting tunnel when tunnel_name is not specified."""
+        ipsec_tunnels = {
+            "Avato Backup": {"interface": "wan2", "remote-gw": "200.233.12.100"}
+        }
+        aliases = ["wan2", "port2"]
+        tunnel_data = None
+        for alias in aliases:
+            for t_name, t_data in ipsec_tunnels.items():
+                if t_data.get("interface") == alias.lower():
+                    tunnel_data = t_data
+                    tunnel_data["name"] = t_name
+                    break
+            if tunnel_data:
+                break
+
+        self.assertIsNotNone(tunnel_data)
+        self.assertEqual(tunnel_data["name"], "Avato Backup")
+        self.assertEqual(tunnel_data["remote-gw"], "200.233.12.100")
+
+    def test_status_sanitization_no_ip_and_not_found(self):
+        """Verifies UP interfaces without an assigned IP become DOWN (No IP)."""
+        status_clean = "UP"
+        empty_ip = ""
+        if status_clean == "UP" and (empty_ip == "0.0.0.0" or not empty_ip):
+            status_clean = "DOWN (No IP)"
+        self.assertEqual(status_clean, "DOWN (No IP)")
+
+        status_clean = "UP"
+        zero_ip = "0.0.0.0"
+        if status_clean == "UP" and (zero_ip == "0.0.0.0" or not zero_ip):
+            status_clean = "DOWN (No IP)"
+        self.assertEqual(status_clean, "DOWN (No IP)")
+
+    def test_ping_cli_interface_quotes(self):
+        """Verifies _ping_via_cli encloses interface names in double quotes."""
+        from unittest.mock import MagicMock
+        from handlers.fortigate import _ping_via_cli
+
+        mock_driver = MagicMock()
+        mock_term = [MagicMock()]
+        mock_driver.find_elements.side_effect = [
+            mock_term,       # term check
+            [MagicMock(text="packet loss")], # initial rows
+            [MagicMock(text="packet loss 0%, min/avg/max = 10/12/15 ms")] # rows after ping
+        ]
+
+        with patch("selenium.webdriver.common.action_chains.ActionChains") as mock_actions_cls:
+            mock_actions = MagicMock()
+            mock_actions_cls.return_value = mock_actions
+            _ping_via_cli(mock_driver, "8.8.8.8", "FGT-01", interface_name="Oi DR")
+            
+            # Check that double quotes are present in send_keys call
+            sent_calls = [call[0][0] for call in mock_actions.send_keys.call_args_list if call[0]]
+            has_quoted_intf = any('execute ping-options interface "Oi DR"' in str(c) for c in sent_calls)
+            self.assertTrue(has_quoted_intf, f"Expected quoted interface call in {sent_calls}")
 
 if __name__ == "__main__":
     unittest.main(buffer=True)

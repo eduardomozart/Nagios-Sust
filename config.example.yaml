@@ -43,10 +43,12 @@ rules:
       ping:
         "default": # Global defaults for all interfaces
           enabled: true # Ping is disabled by default
-          target: "8.8.8.8" # Set to "gateway", "interface", "ipsec_endpoint", or custom IP like "8.8.8.8"
+          target: "8.8.8.8" # Set to "gateway", "interface", "ipsec_remotegw", or custom IP like "8.8.8.8"
           source: "interface" # Set to "host" (ping from script), "interface", or "ipsec_endpoint" (to bind ping to the IPsec tunnel on FortiOS CLI)
         "wan1": # Interface-specific override
-          source: "ipsec_endpoint" # If tunnel is not found, fails cleanly and continues
+          source: "ipsec_endpoint"
+          # tunnel_name: "My Custom Tunnel" # Uncomment to specify exact tunnel, bypassing auto-detect
+          # target: "ipsec_remotegw" # If tunnel is not found, fails cleanly and continues
       # You can override credentials here for this specific rule if needed
       # username: "specific_admin"
       # password: ""

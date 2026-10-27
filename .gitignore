@@ -184,8 +184,12 @@ cython_debug/
 ~$*.docx
 ~$*.doc
 
-# Screenshots
-screenshots/
-
 # macOS
 .DS_Store
+
+# Nagios-Sust Files
+config.yaml
+template_*.docx
+!template_*.example.docx
+screenshots/*
+Evidence_Report*.docx

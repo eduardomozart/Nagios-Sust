@@ -364,9 +364,9 @@ def _get_wan_details(driver, interface_name):
             except Exception as row_e:
                 print(f"DEBUG: Row processing exception for {interface_name}: {row_e}")
                 continue
-        return "", "", "NOT FOUND"
+        return "", "", "DOWN (Not Found)"
     except:
-        return "", "", "NOT FOUND"
+        return "", "", "DOWN (Not Found)"
 
 def _ping_via_cli(driver, target_ip, host, interface_name=None):
     from selenium.webdriver.common.action_chains import ActionChains
@@ -392,7 +392,7 @@ def _ping_via_cli(driver, target_ip, host, interface_name=None):
         # Send interface option if specified
         if interface_name:
             actions = ActionChains(driver)
-            actions.send_keys(f"execute ping-options interface {interface_name}\n")
+            actions.send_keys(f'execute ping-options interface "{interface_name}"\n')
             actions.perform()
             time.sleep(1)
             rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
@@ -440,6 +440,28 @@ def _ping_via_cli(driver, target_ip, host, interface_name=None):
         print(f"[{host}] CLI Ping error for {target_ip}: {e}")
         return ""
 
+def parse_fortigate_ipsec_tunnels_cli(cli_output):
+    """
+    Parses 'show vpn ipsec phase1-interface' CLI output into a dictionary keyed by tunnel name.
+    Handles multiple tunnels bound to the same physical interface.
+    """
+    tunnels_map = {}
+    if not cli_output:
+        return tunnels_map
+    blocks = re.split(r'edit\s+"', cli_output)[1:]
+    for block in blocks:
+        name = block.split('"')[0].strip()
+        intf_match = re.search(r'set interface\s+"?([^"\s\n]+)"?', block)
+        gw_match = re.search(r'set remote-gw\s+([\d\.]+)', block)
+        if name and intf_match and gw_match:
+            intf_key = intf_match.group(1).lower()
+            if name not in tunnels_map:
+                tunnels_map[name] = {
+                    "interface": intf_key,
+                    "remote-gw": gw_match.group(1)
+                }
+    return tunnels_map
+
 def _fetch_all_ipsec_tunnels_via_cli(driver, host):
     from selenium.webdriver.common.action_chains import ActionChains
     from selenium.webdriver.common.by import By
@@ -455,26 +477,24 @@ def _fetch_all_ipsec_tunnels_via_cli(driver, host):
             time.sleep(5)
             
         actions = ActionChains(driver)
-        actions.send_keys('show vpn ipsec phase1-interface | grep "edit\\|interface\\|remote-gw"\n')
+        # Send base command. FortiOS will pause with --More-- if output exceeds terminal height
+        actions.send_keys('show vpn ipsec phase1-interface\n')
         actions.perform()
         
-        time.sleep(3) # Wait for output to render
-        rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
-        text = "\n".join([r.text for r in rows])
-        
-        blocks = text.split("edit ")[1:]
-        for block in blocks:
-            name_match = re.search(r'^"([^"]+)"', block.strip())
-            intf_match = re.search(r'set interface\s+"?([^"\s\n]+)"?', block)
-            gw_match = re.search(r'set remote-gw\s+([\d\.]+)', block)
-            if name_match and intf_match and gw_match:
-                intf_key = intf_match.group(1).lower()
-                if intf_key not in tunnels_map:
-                    tunnels_map[intf_key] = {
-                        "name": name_match.group(1),
-                        "remote-gw": gw_match.group(1)
-                    }
+        full_text = ""
+        for _ in range(15):
+            time.sleep(1.5) # Wait for output to render or page to flip
+            rows = driver.find_elements(By.CSS_SELECTOR, ".xterm-rows > div")
+            screen_text = "\n".join([r.text for r in rows])
+            full_text += "\n" + screen_text
+            
+            if "--More--" in screen_text:
+                actions.send_keys(' ')
+                actions.perform()
+            else:
+                break # Reached the end of the output
                 
+        tunnels_map = parse_fortigate_ipsec_tunnels_cli(full_text)
         print(f"[{host}] Extracted IPsec tunnels binding via CLI: {tunnels_map}")
         return tunnels_map
     except Exception as e:
@@ -502,7 +522,7 @@ def _extract_if_status(driver, host, options):
 
     # Decide if we need to fetch static routes or ipsec bindings
     fetch_routes = gather_gateway or str(default_ping_target).lower() == "gateway"
-    fetch_ipsec = str(default_ping_target).lower() == "ipsec_endpoint" or str(default_ping_source).lower() == "ipsec_endpoint"
+    fetch_ipsec = str(default_ping_target).lower() == "ipsec_remotegw" or str(default_ping_source).lower() == "ipsec_endpoint"
     
     # Check if any specific interface configuration requests a gateway or ipsec ping
     for k, v in ping_config.items():
@@ -511,7 +531,7 @@ def _extract_if_status(driver, host, options):
             source = str(v.get("source", "")).lower()
             if target == "gateway":
                 fetch_routes = True
-            if target == "ipsec_endpoint" or source == "ipsec_endpoint":
+            if target == "ipsec_remotegw" or source == "ipsec_endpoint":
                 fetch_ipsec = True
 
     # 1. We are already on /ng/interface. Extract IP, mask, and link status.
@@ -526,7 +546,7 @@ def _extract_if_status(driver, host, options):
         found = False
         for alias in aliases:
             ip, mask, status_clean = _get_wan_details(driver, alias)
-            if status_clean != "NOT FOUND":
+            if status_clean != "DOWN (Not Found)":
                 intf_data[intf_lower] = {
                     "key": key,
                     "status": status_clean,
@@ -541,7 +561,7 @@ def _extract_if_status(driver, host, options):
         if not found:
             intf_data[intf_lower] = {
                 "key": key,
-                "status": "NOT FOUND",
+                "status": "DOWN (Not Found)",
                 "ip": "",
                 "mask": "",
                 "aliases": aliases,
@@ -595,6 +615,7 @@ def _extract_if_status(driver, host, options):
         intf_ping_target = default_ping_target
         intf_ping_source = default_ping_source
         intf_ping_count = default_ping_count
+        intf_tunnel_name = ping_defaults.get("tunnel_name")
         
         # Check for interface-specific overrides
         for k, v in ping_config.items():
@@ -609,11 +630,12 @@ def _extract_if_status(driver, host, options):
                     if "target" in v: intf_ping_target = v["target"]
                     if "source" in v: intf_ping_source = v["source"]
                     if "count" in v: intf_ping_count = v["count"]
+                    if "tunnel_name" in v: intf_tunnel_name = v["tunnel_name"]
                 elif isinstance(v, bool):
                     wants_ping = v
                 break
                 
-        if ip == "0.0.0.0":
+        if status_clean == "UP" and (ip == "0.0.0.0" or not ip):
             status_clean = "DOWN (No IP)"
             
         # Validation: prevent source='host' from pinging invalid targets
@@ -633,15 +655,26 @@ def _extract_if_status(driver, host, options):
                 else:
                     print(f"[{host}] Gateway for {primary_intf} not found, falling back to interface IP -> {ip}")
                     target_ip = ip
-            elif str(intf_ping_target).lower() == "ipsec_endpoint":
+            elif str(intf_ping_target).lower() == "ipsec_remotegw":
                 tunnel_data = None
-                for alias in aliases:
-                    if alias.lower() in ipsec_tunnels:
-                        tunnel_data = ipsec_tunnels[alias.lower()]
-                        break
+                
+                if intf_tunnel_name:
+                    if intf_tunnel_name in ipsec_tunnels:
+                        tunnel_data = ipsec_tunnels[intf_tunnel_name]
+                    else:
+                        print(f"[{host}] Explicit IPsec tunnel '{intf_tunnel_name}' not found for {primary_intf}.")
+                else:
+                    for alias in aliases:
+                        for t_name, t_data in ipsec_tunnels.items():
+                            if t_data.get("interface") == alias.lower():
+                                tunnel_data = t_data
+                                tunnel_data["name"] = t_name # Store the name for prints
+                                break
+                        if tunnel_data:
+                            break
                         
                 if tunnel_data:
-                    tunnel_name = tunnel_data["name"]
+                    tunnel_name = tunnel_data.get("name", intf_tunnel_name)
                     target_ip = tunnel_data["remote-gw"]
                     print(f"[{host}] IPsec tunnel '{tunnel_name}' for {primary_intf} detected. Pinging endpoint -> {target_ip}")
                 else:
@@ -670,12 +703,22 @@ def _extract_if_status(driver, host, options):
                     ping_intf_name = data["used_alias"]
                     if source_val == "ipsec_endpoint":
                         tunnel_data = None
-                        for alias in aliases:
-                            if alias.lower() in ipsec_tunnels:
-                                tunnel_data = ipsec_tunnels[alias.lower()]
-                                break
+                        
+                        if intf_tunnel_name:
+                            if intf_tunnel_name in ipsec_tunnels:
+                                tunnel_data = ipsec_tunnels[intf_tunnel_name]
+                        else:
+                            for alias in aliases:
+                                for t_name, t_data in ipsec_tunnels.items():
+                                    if t_data.get("interface") == alias.lower():
+                                        tunnel_data = t_data
+                                        tunnel_data["name"] = t_name
+                                        break
+                                if tunnel_data:
+                                    break
+                                    
                         if tunnel_data:
-                            ping_intf_name = tunnel_data["name"]
+                            ping_intf_name = tunnel_data.get("name", intf_tunnel_name)
                             print(f"[{host}] Sourcing ping from IPsec tunnel '{ping_intf_name}'")
                         else:
                             print(f"[{host}] IPsec tunnel for {primary_intf} not found to source ping. Skipping ping (fail and continue).")
